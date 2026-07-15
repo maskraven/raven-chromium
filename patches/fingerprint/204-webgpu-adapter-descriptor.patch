@@ -1,0 +1,87 @@
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+index 9d155705c1350..802944ae300c2 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+@@ -4,11 +4,32 @@
+ 
+ #include "third_party/blink/renderer/modules/webgpu/gpu_adapter_info.h"
+ 
++#include "base/no_destructor.h"
+ #include "third_party/blink/renderer/modules/webgpu/gpu_memory_heap_info.h"
+ #include "third_party/blink/renderer/modules/webgpu/gpu_subgroup_matrix_config.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ 
+ namespace blink {
+ 
++namespace {
++
++// Human-readable adapter description built from the persona's GPU identity,
++// mirroring how a real driver composes "<vendor> <device>". Kept coherent with
++// the WebGL UNMASKED strings (patch 011) since both read descriptor.gpu — the
++// single GPU source.
++std::string BuildGpuDescription(const fingerprint::Descriptor::Gpu& gpu) {
++  std::string description = gpu.vendor;
++  if (!gpu.device.empty()) {
++    if (!description.empty()) {
++      description += " ";
++    }
++    description += gpu.device;
++  }
++  return description;
++}
++
++}  // namespace
++
+ GPUAdapterInfo::GPUAdapterInfo(const String& vendor,
+                                const String& architecture,
+                                uint32_t subgroup_min_size,
+@@ -46,18 +67,49 @@ void GPUAdapterInfo::AppendSubgroupMatrixConfig(
+ }
+ 
+ const String& GPUAdapterInfo::vendor() const {
++  // Raven descriptor (Plan 03): report the persona's GPU vendor verbatim so the
++  // WebGPU adapter co-varies with WebGL UNMASKED_VENDOR (patch 011). The stored
++  // spoof outlives the call (function-local NoDestructor) so the getter can keep
++  // returning a reference; the process-global descriptor is immutable.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && !profile.descriptor().gpu.vendor.empty()) {
++    static const base::NoDestructor<String> spoofed(
++        String::FromUtf8(profile.descriptor().gpu.vendor));
++    return *spoofed;
++  }
+   return vendor_;
+ }
+ 
+ const String& GPUAdapterInfo::architecture() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && !profile.descriptor().gpu.architecture.empty()) {
++    static const base::NoDestructor<String> spoofed(
++        String::FromUtf8(profile.descriptor().gpu.architecture));
++    return *spoofed;
++  }
+   return architecture_;
+ }
+ 
+ const String& GPUAdapterInfo::device() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && !profile.descriptor().gpu.device.empty()) {
++    static const base::NoDestructor<String> spoofed(
++        String::FromUtf8(profile.descriptor().gpu.device));
++    return *spoofed;
++  }
+   return device_;
+ }
+ 
+ const String& GPUAdapterInfo::description() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    const fingerprint::Descriptor::Gpu& gpu = profile.descriptor().gpu;
++    if (!gpu.vendor.empty() || !gpu.device.empty()) {
++      static const base::NoDestructor<String> spoofed(
++          String::FromUtf8(BuildGpuDescription(gpu)));
++      return *spoofed;
++    }
++  }
+   return description_;
+ }
+ 

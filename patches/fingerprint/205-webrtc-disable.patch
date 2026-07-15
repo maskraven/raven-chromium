@@ -1,0 +1,31 @@
+diff --git a/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc b/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc
+index 64b93ab843543..e2cab73607331 100644
+--- a/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc
++++ b/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc
+@@ -124,6 +124,7 @@
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/heap/persistent.h"
+@@ -562,6 +563,18 @@ RTCPeerConnection* RTCPeerConnection::Create(
+     ExecutionContext* context,
+     const RTCConfiguration* rtc_configuration,
+     ExceptionState& exception_state) {
++  // Raven descriptor (Plan 03): when a fingerprint profile is active, WebRTC is
++  // hard-disabled so no local/public IP can leak via ICE candidates. Fail the
++  // constructor cleanly before any side effects, mirroring the detached-document
++  // path below.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    exception_state.ThrowDOMException(
++        DOMExceptionCode::kNotSupportedError,
++        "RTCPeerConnection is not supported in this browsing context.");
++    return nullptr;
++  }
++
+   if (context->IsContextDestroyed()) {
+     exception_state.ThrowDOMException(
+         DOMExceptionCode::kNotSupportedError,

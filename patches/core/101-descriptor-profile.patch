@@ -1,0 +1,448 @@
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+index 3bc93cb6b8bf5..f60b20cb807d4 100644
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -353,6 +353,8 @@ component("platform") {
+   output_name = "blink_platform"
+ 
+   sources = [
++    "fingerprint/profile.cc",
++    "fingerprint/profile.h",
+     "accept_languages_watcher.h",
+     "animation/animation_translation_util.cc",
+     "animation/animation_translation_util.h",
+@@ -1774,6 +1776,7 @@ component("platform") {
+   assert(use_libgav1_parser)
+ 
+   public_deps = [
++    "//third_party/lifted",
+     ":allow_discouraged_type",
+     ":blink_platform_public_deps",
+     ":platform_export",
+diff --git a/third_party/blink/renderer/platform/fingerprint/DEPS b/third_party/blink/renderer/platform/fingerprint/DEPS
+new file mode 100644
+index 0000000000000..c1a7a38817181
+--- /dev/null
++++ b/third_party/blink/renderer/platform/fingerprint/DEPS
+@@ -0,0 +1,19 @@
++# third_party/blink/renderer/platform/fingerprint/DEPS
++#
++# Local include-rule allowlist for fingerprint::Profile. Blink's platform DEPS
++# (third_party/blink/renderer/platform/DEPS) already permits base/command_line.h,
++# base/json, base/values.h and base/no_destructor.h. These three are the only
++# additions Profile needs; local rules are additive to the parent platform rules.
++include_rules = [
++  # The lifted PRNG primitives: farbling_prng.h (FarblingPRNG) + siphash.h.
++  # farbling_prng.h transitively pulls absl/random, whose repo-global deny is
++  # allowlisted in third_party/lifted/DEPS (checkdeps only flags direct includes,
++  # so no absl allowlist is needed here — Profile never includes absl directly).
++  "+third_party/lifted",
++
++  # Renderer decodes the base64(compact-json) descriptor blob in Profile's ctor.
++  "+base/base64.h",
++
++  # base::StringToUint64 for the u64 seed carried as a decimal string.
++  "+base/strings/string_number_conversions.h",
++]
+diff --git a/third_party/blink/renderer/platform/fingerprint/profile.cc b/third_party/blink/renderer/platform/fingerprint/profile.cc
+new file mode 100644
+index 0000000000000..2ce573ef90553
+--- /dev/null
++++ b/third_party/blink/renderer/platform/fingerprint/profile.cc
+@@ -0,0 +1,213 @@
++// Copyright 2026 The Raven Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license.
++
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
++
++#include <cstring>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <vector>
++
++#include "base/base64.h"
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
++#include "base/no_destructor.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/values.h"
++#include "third_party/lifted/siphash.h"
++
++namespace fingerprint {
++
++namespace {
++
++// Renderer switch carrying base64(compact-json) of the descriptor. Registered
++// browser-side by patches/core/102 in components/ungoogled/ungoogled_switches
++// and allowlisted onto the child cmdline (design §4/§8). Kept as a literal here
++// so the platform layer needs no dependency on //components/ungoogled; 102 may
++// swap this for switches::kFingerprintProfileData.
++constexpr char kProfileDataSwitch[] = "fingerprint-profile-data";
++
++// Accepted contract major (design §6 D1). Unknown major => hard fail (inactive).
++constexpr int kSchemaVersion = 1;
++
++// One splitmix64 step: a fixed-constant integer mixer (NOT a banned primitive —
++// no absl::Hash / base::RandUint64 / Time::Now / std::hash). Advances |state|
++// and returns the mixed output.
++uint64_t SplitMix64(uint64_t* state) {
++  uint64_t z = (*state += 0x9E3779B97F4A7C15ULL);
++  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
++  z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
++  return z ^ (z >> 31);
++}
++
++// splitmix64_expand: two fixed-const splitmix64 steps expand a u64 seed into a
++// 128-bit SipHash key, written little-endian as k0 || k1 (matching how
++// siphash.cc's Load64LE reads key[0..7] and key[8..15]).
++void SplitMix64Expand(uint64_t seed, uint8_t key128[16]) {
++  uint64_t state = seed;
++  const uint64_t k0 = SplitMix64(&state);
++  const uint64_t k1 = SplitMix64(&state);
++  std::memcpy(key128, &k0, sizeof(k0));
++  std::memcpy(key128 + 8, &k1, sizeof(k1));
++}
++
++// Reads a u64 seed that may be encoded as a decimal string (canonical, so it
++// survives values beyond the JS safe-integer range) or a JSON number.
++uint64_t ParseSeed(const base::DictValue& dict) {
++  if (const std::string* s = dict.FindString("seed")) {
++    uint64_t out = 0;
++    if (base::StringToUint64(*s, &out)) {
++      return out;
++    }
++    return 0;
++  }
++  if (std::optional<double> d = dict.FindDouble("seed")) {
++    if (*d >= 0.0) {
++      return static_cast<uint64_t>(*d);
++    }
++  }
++  return 0;
++}
++
++void ParseGpu(const base::DictValue& dict, Descriptor::Gpu* gpu) {
++  if (const std::string* v = dict.FindString("vendor")) {
++    gpu->vendor = *v;
++  }
++  if (const std::string* v = dict.FindString("renderer")) {
++    gpu->renderer = *v;
++  }
++  if (const std::string* v = dict.FindString("architecture")) {
++    gpu->architecture = *v;
++  }
++  if (const std::string* v = dict.FindString("device")) {
++    gpu->device = *v;
++  }
++}
++
++void ParseScreen(const base::DictValue& dict, Descriptor::Screen* screen) {
++  screen->w = dict.FindInt("w").value_or(screen->w);
++  screen->h = dict.FindInt("h").value_or(screen->h);
++  screen->dpr = dict.FindDouble("dpr").value_or(screen->dpr);
++  screen->color_depth = dict.FindInt("colorDepth").value_or(screen->color_depth);
++  screen->pixel_depth = dict.FindInt("pixelDepth").value_or(screen->pixel_depth);
++  screen->avail_w = dict.FindInt("availW").value_or(screen->avail_w);
++  screen->avail_h = dict.FindInt("availH").value_or(screen->avail_h);
++}
++
++// Parses the compact-JSON descriptor. Returns true and fills |out| on success;
++// on any structural failure returns false and leaves the profile inactive.
++bool ParseDescriptor(std::string_view json, Descriptor* out) {
++  std::optional<base::DictValue> root =
++      base::JSONReader::ReadDict(json, base::JSON_PARSE_RFC);
++  if (!root) {
++    return false;
++  }
++
++  // schemaVersion gate: unknown major is a hard fail.
++  std::optional<int> version = root->FindInt("schemaVersion");
++  if (!version || *version != kSchemaVersion) {
++    return false;
++  }
++  out->schema_version = *version;
++  out->seed = ParseSeed(*root);
++
++  if (const std::string* s = root->FindString("os")) {
++    out->os = *s;
++  }
++  if (const std::string* s = root->FindString("platform")) {
++    out->platform = *s;
++  }
++  out->chrome_major = root->FindInt("chromeMajor").value_or(0);
++  out->hardware_concurrency = root->FindInt("hardwareConcurrency").value_or(0);
++  out->device_memory = root->FindDouble("deviceMemory").value_or(0.0);
++
++  if (const base::DictValue* gpu = root->FindDict("gpu")) {
++    ParseGpu(*gpu, &out->gpu);
++  }
++  if (const base::DictValue* screen = root->FindDict("screen")) {
++    ParseScreen(*screen, &out->screen);
++  }
++  if (const base::ListValue* langs = root->FindList("languages")) {
++    for (const base::Value& item : *langs) {
++      if (const std::string* tag = item.GetIfString()) {
++        out->languages.push_back(*tag);
++      }
++    }
++  }
++  if (const std::string* s = root->FindString("locale")) {
++    out->locale = *s;
++  }
++  if (const std::string* s = root->FindString("timezone")) {
++    out->timezone = *s;
++  }
++  return true;
++}
++
++}  // namespace
++
++Descriptor::Descriptor() = default;
++Descriptor::Descriptor(const Descriptor&) = default;
++Descriptor& Descriptor::operator=(const Descriptor&) = default;
++Descriptor::~Descriptor() = default;
++
++Profile::Profile() {
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  if (!command_line || !command_line->HasSwitch(kProfileDataSwitch)) {
++    return;  // Inactive: no switch — leave host defaults, active_ == false.
++  }
++
++  const std::string encoded =
++      command_line->GetSwitchValueASCII(kProfileDataSwitch);
++  std::optional<std::vector<uint8_t>> decoded = base::Base64Decode(encoded);
++  if (!decoded) {
++    return;  // Inactive: malformed base64.
++  }
++
++  const std::string_view json(reinterpret_cast<const char*>(decoded->data()),
++                              decoded->size());
++  Descriptor parsed;
++  if (!ParseDescriptor(json, &parsed)) {
++    return;  // Inactive: malformed / wrong-version descriptor.
++  }
++
++  descriptor_ = std::move(parsed);
++  seed_ = descriptor_.seed;
++  active_ = true;
++}
++
++Profile::~Profile() = default;
++
++// static
++Profile& Profile::Get() {
++  // Magic-static: thread-safe one-time construction (C++11). The descriptor is
++  // immutable afterward, so concurrent reads from renderer threads are safe.
++  static base::NoDestructor<Profile> instance;
++  return *instance;
++}
++
++FarblingPRNG SurfacePrng(uint64_t seed, Surface s) {
++  uint8_t key128[16];
++  SplitMix64Expand(seed, key128);
++  const uint64_t surface_seed = SipHash24Tag(key128, SurfaceTag(s));
++  return FarblingPRNG(surface_seed);
++}
++
++FarblingPRNG CanvasPrng(uint64_t seed, const uint8_t* bytes, size_t len) {
++  // canvas_key128 = splitmix64_expand( canvas-surface seed ), i.e. the profile
++  // seed folded through the kCanvas tag, then expanded to a 128-bit key.
++  uint8_t base_key[16];
++  SplitMix64Expand(seed, base_key);
++  const uint64_t canvas_seed =
++      SipHash24Tag(base_key, SurfaceTag(Surface::kCanvas));
++
++  uint8_t canvas_key128[16];
++  SplitMix64Expand(canvas_seed, canvas_key128);
++
++  // noise_seed depends on BOTH the profile seed and the canvas contents (§3).
++  const uint64_t noise_seed = SipHash24(canvas_key128, bytes, len);
++  return FarblingPRNG(noise_seed);
++}
++
++}  // namespace fingerprint
+diff --git a/third_party/blink/renderer/platform/fingerprint/profile.h b/third_party/blink/renderer/platform/fingerprint/profile.h
+new file mode 100644
+index 0000000000000..83381ed45e20f
+--- /dev/null
++++ b/third_party/blink/renderer/platform/fingerprint/profile.h
+@@ -0,0 +1,177 @@
++// Copyright 2026 The Raven Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license.
++//
++// fingerprint::Profile — the ONE process-global source of spoofed identity.
++//
++// Raven's design (docs/plans/02-ratified-design.md) inverts Brave: the seed is
++// FIXED + per-profile (fix-to-impersonate), not random + per-domain. Brave's
++// ExecutionContext-scoped Supplement (BraveSessionCache) therefore collapses
++// into a lazily-initialized, process-global singleton that every blink
++// renderer surface (canvas/webgl/audio/navigator/screen across core, modules
++// and platform) reads through Profile::Get().
++//
++// This lives in blink's platform layer — the lowest blink layer, depended on
++// by both core and modules — so all surfaces can reach it, mirroring where
++// Brave keeps its lowest-layer farbling primitive (BraveAudioFarblingHelper,
++// third_party/blink/renderer/platform/). See WIRING.md.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FINGERPRINT_PROFILE_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FINGERPRINT_PROFILE_H_
++
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "third_party/blink/renderer/platform/platform_export.h"
++#include "third_party/lifted/farbling_prng.h"
++
++namespace base {
++template <typename T>
++class NoDestructor;
++}  // namespace base
++
++namespace fingerprint {
++
++// Frozen v1 descriptor. Fields mirror descriptor.schema.json / design §6 D1
++// exactly (JSON keys = JS-observable names). Identity axes are read verbatim;
++// the seed drives only within-profile jitter and is never an identity axis.
++struct PLATFORM_EXPORT Descriptor {
++  Descriptor();
++  Descriptor(const Descriptor&);
++  Descriptor& operator=(const Descriptor&);
++  ~Descriptor();
++
++  struct Gpu {
++    std::string vendor;        // gpu.vendor  (UNMASKED_VENDOR_WEBGL)
++    std::string renderer;      // gpu.renderer (UNMASKED_RENDERER_WEBGL)
++    std::string architecture;  // gpu.architecture (WebGPU adapter)
++    std::string device;        // gpu.device       (WebGPU adapter)
++  };
++
++  struct Screen {
++    int w = 0;             // screen.width
++    int h = 0;             // screen.height
++    double dpr = 1.0;      // window.devicePixelRatio
++    int color_depth = 24;  // screen.colorDepth
++    int pixel_depth = 24;  // screen.pixelDepth
++    int avail_w = 0;       // screen.availWidth
++    int avail_h = 0;       // screen.availHeight
++  };
++
++  int schema_version = 0;              // schemaVersion (== 1 for v1)
++  uint64_t seed = 0;                   // seed (u64; jitter only)
++  std::string os;                      // os: "windows" | "macos" | "linux"
++  std::string platform;                // navigator.platform
++  int chrome_major = 0;                // chromeMajor
++  int hardware_concurrency = 0;        // navigator.hardwareConcurrency
++  double device_memory = 0.0;          // navigator.deviceMemory (GiB)
++  Gpu gpu;                             // gpu.{vendor,renderer,architecture,device}
++  Screen screen;                       // screen.{w,h,dpr,...}
++  std::vector<std::string> languages;  // navigator.languages
++  std::string locale;                  // default locale (BCP-47)
++  std::string timezone;                // IANA tz name
++};
++
++// Closed set of jitter surfaces. A typo cannot silently spawn a new PRNG
++// stream because the enum is exhaustive and each value maps to a stable tag.
++// kMaxValue aliases the last real value (Chromium histogram convention).
++enum class Surface {
++  kCanvas,
++  kAudio,
++  kFonts,
++  kWebgl,
++  kInteger,
++  kMediaDevices,
++  kScreen,
++  kSpeech,
++  kLanguages,
++  kWebgpu,
++  kPlugins,
++  kMaxValue = kPlugins,
++};
++
++// Stable ASCII tag per surface — the SipHash message in the derivation chain.
++// Tags are frozen: changing one silently re-rolls that surface's stream.
++constexpr const char* SurfaceTag(Surface s) {
++  switch (s) {
++    case Surface::kCanvas:
++      return "canvas";
++    case Surface::kAudio:
++      return "audio";
++    case Surface::kFonts:
++      return "fonts";
++    case Surface::kWebgl:
++      return "webgl";
++    case Surface::kInteger:
++      return "integer";
++    case Surface::kMediaDevices:
++      return "media-devices";
++    case Surface::kScreen:
++      return "screen";
++    case Surface::kSpeech:
++      return "speech";
++    case Surface::kLanguages:
++      return "languages";
++    case Surface::kWebgpu:
++      return "webgpu";
++    case Surface::kPlugins:
++      return "plugins";
++  }
++  return "";
++}
++
++// The ONE place identity is read. Process-global, lazily initialized on first
++// Get(), thread-safe (magic-static). On first use it decodes the renderer's
++// --fingerprint-profile-data switch (base64(compact-json)) into descriptor_ +
++// seed_. If the switch is absent or invalid, the profile is INACTIVE: active()
++// is false and accessors return host-neutral defaults — it never crashes.
++class PLATFORM_EXPORT Profile {
++ public:
++  Profile(const Profile&) = delete;
++  Profile& operator=(const Profile&) = delete;
++
++  // Returns the immutable process singleton. Safe to call from any thread; the
++  // descriptor is populated once at construction and never mutated afterward.
++  static Profile& Get();
++
++  // True iff a valid descriptor was decoded. Surfaces MUST check this before
++  // spoofing; when false, leave host values untouched.
++  bool active() const { return active_; }
++
++  // Verbatim identity axes (valid only when active()).
++  const Descriptor& descriptor() const { return descriptor_; }
++
++  // Per-profile jitter seed (0 when inactive).
++  uint64_t seed() const { return seed_; }
++
++ private:
++  Profile();
++  ~Profile();
++  friend class base::NoDestructor<Profile>;
++
++  bool active_ = false;
++  uint64_t seed_ = 0;
++  Descriptor descriptor_;
++};
++
++// The ONE factory for per-surface jitter streams (design §1):
++//   key128       = splitmix64_expand(seed)          // two fixed-const steps
++//   surface_seed = SipHash-2-4(key128, SurfaceTag(s))
++//   return FarblingPRNG(surface_seed)
++// Statistically independent streams per surface from a single seed.
++PLATFORM_EXPORT FarblingPRNG SurfacePrng(uint64_t seed, Surface s);
++
++// Canvas content-coupled variant (design §3). Depends on BOTH the profile seed
++// AND the canvas pixel bytes, so identical canvases on different profiles — and
++// different canvases on one profile — perturb differently, without HMAC:
++//   canvas_key128 = splitmix64_expand(SurfacePrng-seed for kCanvas)
++//   noise_seed    = SipHash-2-4(canvas_key128, bytes)
++//   return FarblingPRNG(noise_seed)
++PLATFORM_EXPORT FarblingPRNG CanvasPrng(uint64_t seed,
++                                        const uint8_t* bytes,
++                                        size_t len);
++
++}  // namespace fingerprint
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FINGERPRINT_PROFILE_H_

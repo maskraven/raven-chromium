@@ -1,0 +1,14 @@
+# third_party/lifted/BUILD.gn — Raven-Chromium lifted PRNG primitives.
+# Provenance ledger: third_party/lifted/README.md.
+
+source_set("lifted") {
+  public = [
+    "farbling_prng.h",
+    "siphash.h",
+  ]
+  sources = [ "siphash.cc" ]
+
+  # farbling_prng.h includes absl/random/random.h (public abseil target; the
+  # local DEPS file allowlists the otherwise repo-denied absl/random include).
+  public_deps = [ "//third_party/abseil-cpp/absl/random:random" ]
+}

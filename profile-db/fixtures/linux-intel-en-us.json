@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "seed": 4503599627370491,
+  "os": "linux",
+  "platform": "Linux x86_64",
+  "chromeMajor": 150,
+  "hardwareConcurrency": 8,
+  "deviceMemory": 8,
+  "gpu": {
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.3)",
+    "architecture": "gen-9",
+    "device": "Mesa Intel(R) UHD Graphics 620 (KBL GT2)"
+  },
+  "screen": {
+    "w": 1920,
+    "h": 1080,
+    "dpr": 1,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "availW": 1920,
+    "availH": 1053
+  },
+  "languages": ["en-US", "en"],
+  "locale": "en-US",
+  "timezone": "America/Chicago"
+}

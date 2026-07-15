@@ -1,0 +1,731 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>Raven fingerprint probe</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 13px/1.5 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    padding: 16px; max-width: 100%;
+  }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  .row { margin: 6px 0; }
+  .label { font-weight: 700; }
+  #hash { word-break: break-all; font-weight: 700; }
+  #status { padding: 4px 8px; border-radius: 4px; display: inline-block; }
+  #status.pending { background: #eab308; color: #000; }
+  #status.done { background: #16a34a; color: #fff; }
+  #ready[data-ready="1"] { outline: 2px solid #16a34a; }
+  pre {
+    background: rgba(127,127,127,0.12); padding: 12px; border-radius: 6px;
+    overflow-x: auto; max-width: 100%; white-space: pre; font-size: 12px;
+  }
+  .muted { opacity: 0.7; }
+</style>
+
+<h1>Raven fingerprint probe</h1>
+<div class="row"><span class="label">status:</span> <span id="status" class="pending">running…</span></div>
+<div class="row"><span class="label">snapshot SHA-256:</span> <span id="hash" class="muted">(pending)</span></div>
+<div id="ready" data-ready="0" class="row muted">not ready</div>
+<div class="row muted">Machine-readable output is on <code>window.__RAVEN_FP__ = { hash, snapshot }</code>; title becomes <code>FP:&lt;hash&gt;</code>.</div>
+<pre id="json" class="muted">(collecting…)</pre>
+
+<script>
+"use strict";
+(function () {
+  // ------------------------------------------------------------------ //
+  // Raven fingerprint probe — self-contained, offline, CSP-safe.       //
+  // Emits a canonical (recursively key-sorted) JSON snapshot of every  //
+  // web-observable fingerprint surface, plus a top-level SHA-256.      //
+  // No external resources, no eval, no inline event handlers.          //
+  // ------------------------------------------------------------------ //
+
+  var PROBE_VERSION = "1.0.0";
+  var UNAVAILABLE = "unavailable";
+
+  // ---- small utilities ------------------------------------------------
+
+  function ror(x, n) { return (x >>> n) | (x << (32 - n)); }
+
+  // Pure-JS SHA-256 fallback (used only if crypto.subtle is absent).
+  var SHA_K = [
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+
+  function sha256Sync(msg) { // Uint8Array -> hex string
+    var h0=0x6a09e667,h1=0xbb67ae85,h2=0x3c6ef372,h3=0xa54ff53a,
+        h4=0x510e527f,h5=0x9b05688c,h6=0x1f83d9ab,h7=0x5be0cd19;
+    var l = msg.length, bitLen = l * 8, withOne = l + 1;
+    var pad = (56 - (withOne % 64) + 64) % 64;
+    var total = withOne + pad + 8;
+    var m = new Uint8Array(total);
+    m.set(msg, 0); m[l] = 0x80;
+    var hi = Math.floor(bitLen / 0x100000000), lo = bitLen >>> 0;
+    m[total-8]=(hi>>>24)&255; m[total-7]=(hi>>>16)&255; m[total-6]=(hi>>>8)&255; m[total-5]=hi&255;
+    m[total-4]=(lo>>>24)&255; m[total-3]=(lo>>>16)&255; m[total-2]=(lo>>>8)&255; m[total-1]=lo&255;
+    var w = new Int32Array(64);
+    for (var i = 0; i < total; i += 64) {
+      for (var t = 0; t < 16; t++) {
+        w[t] = (m[i+4*t]<<24) | (m[i+4*t+1]<<16) | (m[i+4*t+2]<<8) | (m[i+4*t+3]);
+      }
+      for (t = 16; t < 64; t++) {
+        var s0 = ror(w[t-15],7) ^ ror(w[t-15],18) ^ (w[t-15]>>>3);
+        var s1 = ror(w[t-2],17) ^ ror(w[t-2],19) ^ (w[t-2]>>>10);
+        w[t] = (w[t-16] + s0 + w[t-7] + s1) | 0;
+      }
+      var a=h0,b=h1,c=h2,d=h3,e=h4,f=h5,g=h6,h=h7;
+      for (t = 0; t < 64; t++) {
+        var S1 = ror(e,6) ^ ror(e,11) ^ ror(e,25);
+        var ch = (e & f) ^ ((~e) & g);
+        var temp1 = (h + S1 + ch + SHA_K[t] + w[t]) | 0;
+        var S0 = ror(a,2) ^ ror(a,13) ^ ror(a,22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var temp2 = (S0 + maj) | 0;
+        h=g; g=f; f=e; e=(d+temp1)|0; d=c; c=b; b=a; a=(temp1+temp2)|0;
+      }
+      h0=(h0+a)|0; h1=(h1+b)|0; h2=(h2+c)|0; h3=(h3+d)|0;
+      h4=(h4+e)|0; h5=(h5+f)|0; h6=(h6+g)|0; h7=(h7+h)|0;
+    }
+    var hs = [h0,h1,h2,h3,h4,h5,h6,h7], hex = "";
+    for (i = 0; i < 8; i++) hex += ("00000000" + ((hs[i] >>> 0).toString(16))).slice(-8);
+    return hex;
+  }
+
+  function toHex(buf) {
+    var v = new Uint8Array(buf), s = "";
+    for (var i = 0; i < v.length; i++) s += ("0" + v[i].toString(16)).slice(-2);
+    return s;
+  }
+
+  function sha256Hex(bytes) { // bytes: Uint8Array -> Promise<hex>
+    if (typeof crypto !== "undefined" && crypto.subtle && crypto.subtle.digest) {
+      // Copy into a fresh ArrayBuffer view to avoid detached/offset surprises.
+      var copy = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+        ? bytes : new Uint8Array(bytes);
+      return crypto.subtle.digest("SHA-256", copy).then(toHex, function () {
+        return sha256Sync(bytes);
+      });
+    }
+    return Promise.resolve(sha256Sync(bytes));
+  }
+
+  var TE = (typeof TextEncoder !== "undefined") ? new TextEncoder() : null;
+  function utf8(str) {
+    if (TE) return TE.encode(str);
+    // minimal UTF-8 encoder fallback
+    var out = [], i, c;
+    for (i = 0; i < str.length; i++) {
+      c = str.charCodeAt(i);
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) { out.push(0xc0 | (c >> 6), 0x80 | (c & 63)); }
+      else { out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)); }
+    }
+    return new Uint8Array(out);
+  }
+  function sha256Text(str) { return sha256Hex(utf8(str)); }
+
+  // Deep clone with recursively sorted object keys (for canonical + pretty).
+  function sortedClone(v) {
+    if (v === null || typeof v !== "object") return v;
+    if (Array.isArray(v)) return v.map(sortedClone);
+    var keys = Object.keys(v).sort(), out = {};
+    for (var i = 0; i < keys.length; i++) out[keys[i]] = sortedClone(v[keys[i]]);
+    return out;
+  }
+  // Canonical compact JSON string over the key-sorted structure.
+  function canonicalize(v) {
+    if (v === null) return "null";
+    var t = typeof v;
+    if (t === "number") return isFinite(v) ? JSON.stringify(v) : "null";
+    if (t === "boolean" || t === "string") return JSON.stringify(v);
+    if (Array.isArray(v)) {
+      var a = [];
+      for (var i = 0; i < v.length; i++) a.push(canonicalize(v[i]));
+      return "[" + a.join(",") + "]";
+    }
+    if (t === "object") {
+      var keys = Object.keys(v).sort(), parts = [];
+      for (var j = 0; j < keys.length; j++) parts.push(JSON.stringify(keys[j]) + ":" + canonicalize(v[keys[j]]));
+      return "{" + parts.join(",") + "}";
+    }
+    return "null";
+  }
+
+  function safe(fn, dflt) { try { var r = fn(); return (r === undefined) ? (dflt === undefined ? UNAVAILABLE : dflt) : r; } catch (e) { return { error: String(e && e.message || e) }; } }
+  function withTimeout(promise, ms, onTimeout) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var timer = setTimeout(function () { if (!done) { done = true; resolve(onTimeout); } }, ms);
+      Promise.resolve(promise).then(function (v) {
+        if (!done) { done = true; clearTimeout(timer); resolve(v); }
+      }, function (e) {
+        if (!done) { done = true; clearTimeout(timer); resolve({ error: String(e && e.message || e) }); }
+      });
+    });
+  }
+
+  // ---- synchronous surfaces ------------------------------------------
+
+  function collectNavigator() {
+    var n = navigator;
+    var o = {
+      userAgent: safe(function () { return n.userAgent; }),
+      appVersion: safe(function () { return n.appVersion; }),
+      platform: safe(function () { return n.platform; }),
+      vendor: safe(function () { return n.vendor; }),
+      language: safe(function () { return n.language; }),
+      languages: safe(function () { return n.languages ? Array.prototype.slice.call(n.languages) : UNAVAILABLE; }),
+      hardwareConcurrency: safe(function () { return n.hardwareConcurrency; }),
+      deviceMemory: safe(function () { return ("deviceMemory" in n) ? n.deviceMemory : UNAVAILABLE; }),
+      maxTouchPoints: safe(function () { return n.maxTouchPoints; }),
+      webdriver: safe(function () { return n.webdriver; }),
+      pdfViewerEnabled: safe(function () { return ("pdfViewerEnabled" in n) ? n.pdfViewerEnabled : UNAVAILABLE; }),
+      connectionPresent: safe(function () { return !!(n.connection || n.mozConnection || n.webkitConnection); }),
+      permissionsPresent: safe(function () { return !!n.permissions; }),
+      cookieEnabled: safe(function () { return n.cookieEnabled; }),
+      doNotTrack: safe(function () { return n.doNotTrack === undefined ? UNAVAILABLE : n.doNotTrack; })
+    };
+    return o;
+  }
+
+  function collectUserAgentData() {
+    var uad = navigator.userAgentData;
+    if (!uad) return UNAVAILABLE;
+    var base = {
+      brands: safe(function () {
+        return (uad.brands || []).map(function (b) { return { brand: b.brand, version: b.version }; });
+      }),
+      mobile: safe(function () { return uad.mobile; }),
+      platform: safe(function () { return uad.platform; })
+    };
+    var wanted = ["architecture", "bitness", "model", "platformVersion", "uaFullVersion", "fullVersionList", "wow64"];
+    return Promise.resolve(
+      (uad.getHighEntropyValues ? uad.getHighEntropyValues(wanted) : Promise.reject(new Error("no getHighEntropyValues")))
+    ).then(function (he) {
+      base.highEntropy = {
+        architecture: he.architecture !== undefined ? he.architecture : UNAVAILABLE,
+        bitness: he.bitness !== undefined ? he.bitness : UNAVAILABLE,
+        model: he.model !== undefined ? he.model : UNAVAILABLE,
+        platformVersion: he.platformVersion !== undefined ? he.platformVersion : UNAVAILABLE,
+        uaFullVersion: he.uaFullVersion !== undefined ? he.uaFullVersion : UNAVAILABLE,
+        fullVersionList: he.fullVersionList
+          ? he.fullVersionList.map(function (b) { return { brand: b.brand, version: b.version }; })
+          : UNAVAILABLE,
+        wow64: he.wow64 !== undefined ? he.wow64 : UNAVAILABLE
+      };
+      return base;
+    }, function (e) {
+      base.highEntropy = { error: String(e && e.message || e) };
+      return base;
+    });
+  }
+
+  function collectScreen() {
+    var s = screen;
+    return {
+      width: safe(function () { return s.width; }),
+      height: safe(function () { return s.height; }),
+      availWidth: safe(function () { return s.availWidth; }),
+      availHeight: safe(function () { return s.availHeight; }),
+      colorDepth: safe(function () { return s.colorDepth; }),
+      pixelDepth: safe(function () { return s.pixelDepth; }),
+      devicePixelRatio: safe(function () { return window.devicePixelRatio; }),
+      orientationType: safe(function () { return (s.orientation && s.orientation.type) ? s.orientation.type : UNAVAILABLE; })
+    };
+  }
+
+  function collectWindow() {
+    return {
+      innerWidth: safe(function () { return window.innerWidth; }),
+      innerHeight: safe(function () { return window.innerHeight; }),
+      outerWidth: safe(function () { return window.outerWidth; }),
+      outerHeight: safe(function () { return window.outerHeight; }),
+      // matchMedia resolution cross-check (DPR desync tell — Plan 04 S2)
+      matchDevicePixelRatio: safe(function () {
+        var probes = [1, 1.25, 1.5, 2, 3];
+        for (var i = 0; i < probes.length; i++) {
+          if (window.matchMedia("(resolution: " + probes[i] + "dppx)").matches) return probes[i];
+        }
+        return "other";
+      }),
+      prefersColorScheme: safe(function () {
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }),
+      prefersReducedMotion: safe(function () {
+        return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduce" : "no-preference";
+      })
+    };
+  }
+
+  function collectIntl() {
+    return {
+      timeZone: safe(function () {
+        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return tz || UNAVAILABLE;
+      }),
+      timezoneOffsetMinutes: safe(function () { return new Date().getTimezoneOffset(); }),
+      locale: safe(function () { return Intl.DateTimeFormat().resolvedOptions().locale; }),
+      numberingSystem: safe(function () { return Intl.DateTimeFormat().resolvedOptions().numberingSystem; }),
+      calendar: safe(function () { return Intl.DateTimeFormat().resolvedOptions().calendar; })
+    };
+  }
+
+  // ---- canvas 2D ------------------------------------------------------
+
+  function drawCanvas2D() {
+    var c = document.createElement("canvas");
+    c.width = 300; c.height = 150;
+    var ctx = c.getContext("2d");
+    ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 300, 150);
+    var g = ctx.createLinearGradient(0, 0, 300, 0);
+    g.addColorStop(0, "#ff0000"); g.addColorStop(0.5, "#00ff00"); g.addColorStop(1, "#0000ff");
+    ctx.fillStyle = g; ctx.fillRect(10, 10, 280, 40);
+    ctx.fillStyle = "#069";
+    ctx.font = "18px 'Arial'";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText("Raven ❤ fingerprint 0123", 12, 82);
+    ctx.strokeStyle = "rgba(0,0,255,0.7)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(150, 110, 30, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,0,255,0.5)";
+    ctx.beginPath(); ctx.moveTo(50, 120); ctx.lineTo(120, 140); ctx.lineTo(90, 90); ctx.closePath(); ctx.fill();
+    return { canvas: c, ctx: ctx };
+  }
+
+  function collectCanvas() {
+    try {
+      var r = drawCanvas2D();
+      var dataUrl = r.canvas.toDataURL();
+      var img = r.ctx.getImageData(0, 0, 300, 150);
+      var pixelBytes = new Uint8Array(img.data.buffer.slice(0));
+      return Promise.all([sha256Text(dataUrl), sha256Hex(pixelBytes)]).then(function (h) {
+        return { supported: true, toDataURLHash: h[0], imageDataHash: h[1] };
+      });
+    } catch (e) {
+      return Promise.resolve({ supported: false, error: String(e && e.message || e) });
+    }
+  }
+
+  // ---- WebGL ----------------------------------------------------------
+
+  var WEBGL_PARAMS = [
+    "MAX_TEXTURE_SIZE", "MAX_CUBE_MAP_TEXTURE_SIZE", "MAX_RENDERBUFFER_SIZE",
+    "MAX_VIEWPORT_DIMS", "MAX_VERTEX_ATTRIBS", "MAX_VERTEX_UNIFORM_VECTORS",
+    "MAX_VARYING_VECTORS", "MAX_COMBINED_TEXTURE_IMAGE_UNITS", "MAX_TEXTURE_IMAGE_UNITS",
+    "MAX_VERTEX_TEXTURE_IMAGE_UNITS", "MAX_FRAGMENT_UNIFORM_VECTORS",
+    "ALIASED_LINE_WIDTH_RANGE", "ALIASED_POINT_SIZE_RANGE",
+    "RED_BITS", "GREEN_BITS", "BLUE_BITS", "ALPHA_BITS", "DEPTH_BITS", "STENCIL_BITS",
+    "MAX_TEXTURE_MAX_ANISOTROPY_EXT"
+  ];
+
+  function normalizeParam(v) {
+    if (v == null) return null;
+    if (typeof v === "number" || typeof v === "boolean" || typeof v === "string") return v;
+    if (v instanceof Float32Array || v instanceof Int32Array || v instanceof Uint32Array || Array.isArray(v)) {
+      return Array.prototype.slice.call(v);
+    }
+    return String(v);
+  }
+
+  function drawWebGL(gl) {
+    var vs = "attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }";
+    var fs = "precision mediump float; void main(){ gl_FragColor = vec4(0.40, 0.70, 0.20, 1.0); }";
+    function sh(type, src) { var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; }
+    var prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-0.7, -0.7, 0.7, -0.7, 0.0, 0.8]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(prog, "p");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.viewport(0, 0, 64, 64);
+    gl.clearColor(0.1, 0.2, 0.3, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    var px = new Uint8Array(64 * 64 * 4);
+    gl.readPixels(0, 0, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  }
+
+  function collectWebGL(kind) { // kind: "webgl" | "webgl2"
+    var out = { supported: false };
+    try {
+      var c = document.createElement("canvas");
+      c.width = 64; c.height = 64;
+      var gl = c.getContext(kind) || (kind === "webgl" ? c.getContext("experimental-webgl") : null);
+      if (!gl) return Promise.resolve(UNAVAILABLE);
+      out.supported = true;
+      out.vendor = normalizeParam(safe(function () { return gl.getParameter(gl.VENDOR); }));
+      out.renderer = normalizeParam(safe(function () { return gl.getParameter(gl.RENDERER); }));
+      out.version = normalizeParam(safe(function () { return gl.getParameter(gl.VERSION); }));
+      out.shadingLanguageVersion = normalizeParam(safe(function () { return gl.getParameter(gl.SHADING_LANGUAGE_VERSION); }));
+
+      var dbg = gl.getExtension("WEBGL_debug_renderer_info");
+      out.unmaskedVendor = dbg ? normalizeParam(safe(function () { return gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL); })) : UNAVAILABLE;
+      out.unmaskedRenderer = dbg ? normalizeParam(safe(function () { return gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL); })) : UNAVAILABLE;
+
+      var aniso = gl.getExtension("EXT_texture_filter_anisotropic");
+      var params = {};
+      for (var i = 0; i < WEBGL_PARAMS.length; i++) {
+        var name = WEBGL_PARAMS[i], enumVal;
+        if (name === "MAX_TEXTURE_MAX_ANISOTROPY_EXT") {
+          enumVal = aniso ? aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT : undefined;
+        } else {
+          enumVal = gl[name];
+        }
+        params[name] = (enumVal === undefined) ? UNAVAILABLE : normalizeParam(safe(function () { return gl.getParameter(enumVal); }));
+      }
+      out.parameters = params;
+
+      var exts = safe(function () { return gl.getSupportedExtensions() || []; });
+      out.extensions = Array.isArray(exts) ? exts.slice().sort() : exts;
+
+      var px = safe(function () { return drawWebGL(gl); });
+      if (px && px.buffer) {
+        return sha256Hex(new Uint8Array(px.buffer.slice(0))).then(function (h) {
+          out.readPixelsHash = h;
+          return out;
+        });
+      }
+      out.readPixelsHash = UNAVAILABLE;
+      return Promise.resolve(out);
+    } catch (e) {
+      return Promise.resolve({ supported: false, error: String(e && e.message || e) });
+    }
+  }
+
+  // ---- WebGPU ---------------------------------------------------------
+
+  var WEBGPU_LIMITS = [
+    "maxTextureDimension1D", "maxTextureDimension2D", "maxTextureDimension3D",
+    "maxTextureArrayLayers", "maxBindGroups", "maxBindingsPerBindGroup",
+    "maxSampledTexturesPerShaderStage", "maxSamplersPerShaderStage",
+    "maxStorageBuffersPerShaderStage", "maxStorageTexturesPerShaderStage",
+    "maxUniformBuffersPerShaderStage", "maxUniformBufferBindingSize",
+    "maxStorageBufferBindingSize", "maxBufferSize", "maxVertexBuffers",
+    "maxVertexAttributes", "maxComputeWorkgroupStorageSize",
+    "maxComputeInvocationsPerWorkgroup", "maxComputeWorkgroupSizeX",
+    "maxComputeWorkgroupSizeY", "maxComputeWorkgroupSizeZ",
+    "maxComputeWorkgroupsPerDimension"
+  ];
+
+  function collectWebGPU() {
+    if (!navigator.gpu) return Promise.resolve({ available: false });
+    return Promise.resolve(navigator.gpu.requestAdapter()).then(function (adapter) {
+      if (!adapter) return { available: false, reason: "no adapter" };
+      var out = { available: true };
+      function fromInfo(info) {
+        out.vendor = info && info.vendor !== undefined ? info.vendor : UNAVAILABLE;
+        out.architecture = info && info.architecture !== undefined ? info.architecture : UNAVAILABLE;
+        out.device = info && info.device !== undefined ? info.device : UNAVAILABLE;
+        out.description = info && info.description !== undefined ? info.description : UNAVAILABLE;
+      }
+      var limits = {};
+      try {
+        var L = adapter.limits;
+        for (var i = 0; i < WEBGPU_LIMITS.length; i++) {
+          var k = WEBGPU_LIMITS[i];
+          var val = (L && L[k] !== undefined) ? L[k] : UNAVAILABLE;
+          // Some limits are BigInt/large; coerce to Number for JSON stability.
+          limits[k] = (typeof val === "bigint") ? Number(val) : val;
+        }
+      } catch (e) { limits = { error: String(e && e.message || e) }; }
+      out.limits = limits;
+      out.features = safe(function () {
+        return adapter.features ? Array.prototype.slice.call(adapter.features).sort() : UNAVAILABLE;
+      });
+
+      if (adapter.info) { fromInfo(adapter.info); return out; }
+      if (adapter.requestAdapterInfo) {
+        return Promise.resolve(adapter.requestAdapterInfo()).then(function (info) {
+          fromInfo(info); return out;
+        }, function () { fromInfo(null); return out; });
+      }
+      fromInfo(null);
+      return out;
+    }, function (e) {
+      return { available: false, error: String(e && e.message || e) };
+    });
+  }
+
+  // ---- AudioContext ---------------------------------------------------
+
+  function collectAudio() {
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC) return Promise.resolve({ supported: false });
+    try {
+      var ctx = new OAC(1, 44100, 44100);
+      var osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = 10000;
+      var comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -50;
+      comp.knee.value = 40;
+      comp.ratio.value = 12;
+      comp.attack.value = 0;
+      comp.release.value = 0.25;
+      osc.connect(comp);
+      comp.connect(ctx.destination);
+      osc.start(0);
+      return Promise.resolve(ctx.startRendering()).then(function (buf) {
+        var data = buf.getChannelData(0);
+        // fixed analysis window
+        var start = 4000, end = 5000, sum = 0;
+        for (var i = start; i < end; i++) sum += Math.abs(data[i]);
+        var slice = new Float32Array(end - start);
+        for (i = start; i < end; i++) slice[i - start] = data[i];
+        var bytes = new Uint8Array(slice.buffer);
+        return sha256Hex(bytes).then(function (h) {
+          return { supported: true, sampleHash: h, absSum: Number(sum.toFixed(8)), sampleRate: buf.sampleRate, length: buf.length };
+        });
+      }, function (e) {
+        return { supported: false, error: String(e && e.message || e) };
+      });
+    } catch (e) {
+      return Promise.resolve({ supported: false, error: String(e && e.message || e) });
+    }
+  }
+
+  // ---- fonts (measurement-based) -------------------------------------
+
+  var FONT_CANDIDATES = [
+    "Arial", "Arial Black", "Arial Narrow", "Bahnschrift", "Calibri", "Cambria",
+    "Candara", "Comic Sans MS", "Consolas", "Constantia", "Corbel", "Courier",
+    "Courier New", "DejaVu Sans", "DejaVu Sans Mono", "DejaVu Serif",
+    "Ebrima", "Franklin Gothic Medium", "Gabriola", "Gadugi", "Geneva", "Georgia",
+    "Helvetica", "Helvetica Neue", "Hiragino Sans", "Impact", "Ink Free",
+    "Liberation Mono", "Liberation Sans", "Liberation Serif", "Lucida Console",
+    "Lucida Grande", "Lucida Sans Unicode", "MS Gothic", "MS PGothic", "Malgun Gothic",
+    "Marlett", "Menlo", "Meiryo", "Microsoft Sans Serif", "Monaco", "MV Boli",
+    "Nimbus Sans", "Noto Color Emoji", "Noto Sans", "Noto Serif", "PingFang SC",
+    "Palatino Linotype", "Roboto", "Segoe Print", "Segoe Script", "Segoe UI",
+    "Segoe UI Emoji", "Segoe UI Historic", "Segoe UI Symbol", "SimSun", "Sitka",
+    "Sylfaen", "Symbol", "Tahoma", "Times", "Times New Roman", "Trebuchet MS",
+    "Ubuntu", "Verdana", "Webdings", "Wingdings", "Yu Gothic"
+  ];
+
+  function collectFonts() {
+    try {
+      var baseFonts = ["monospace", "serif", "sans-serif"];
+      var testString = "mmmmmmmmmmlli WWWWWWWWWW @#% Éç中文";
+      var span = document.createElement("span");
+      span.style.position = "absolute";
+      span.style.left = "-99999px";
+      span.style.top = "-99999px";
+      span.style.fontSize = "72px";
+      span.style.lineHeight = "normal";
+      span.style.whiteSpace = "nowrap";
+      span.textContent = testString;
+      document.body.appendChild(span);
+      var base = {};
+      for (var b = 0; b < baseFonts.length; b++) {
+        span.style.fontFamily = baseFonts[b];
+        base[baseFonts[b]] = { w: span.offsetWidth, h: span.offsetHeight };
+      }
+      var present = [];
+      for (var f = 0; f < FONT_CANDIDATES.length; f++) {
+        var fam = FONT_CANDIDATES[f], detected = false;
+        for (b = 0; b < baseFonts.length; b++) {
+          span.style.fontFamily = '"' + fam + '",' + baseFonts[b];
+          if (span.offsetWidth !== base[baseFonts[b]].w || span.offsetHeight !== base[baseFonts[b]].h) {
+            detected = true; break;
+          }
+        }
+        if (detected) present.push(fam);
+      }
+      document.body.removeChild(span);
+      present.sort();
+      return { supported: true, candidateCount: FONT_CANDIDATES.length, presentCount: present.length, present: present };
+    } catch (e) {
+      return { supported: false, error: String(e && e.message || e) };
+    }
+  }
+
+  // ---- plugins / mimeTypes -------------------------------------------
+
+  function collectPlugins() {
+    var names = safe(function () {
+      var out = [];
+      if (navigator.plugins) for (var i = 0; i < navigator.plugins.length; i++) out.push(navigator.plugins[i].name);
+      return out.sort();
+    });
+    var mimes = safe(function () {
+      var out = [];
+      if (navigator.mimeTypes) for (var i = 0; i < navigator.mimeTypes.length; i++) out.push(navigator.mimeTypes[i].type);
+      return out.sort();
+    });
+    return { plugins: names, mimeTypes: mimes };
+  }
+
+  // ---- mediaDevices ---------------------------------------------------
+
+  function collectMediaDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      return Promise.resolve({ supported: false });
+    }
+    return Promise.resolve(navigator.mediaDevices.enumerateDevices()).then(function (list) {
+      var counts = { audioinput: 0, audiooutput: 0, videoinput: 0, other: 0 };
+      var labeled = false;
+      for (var i = 0; i < list.length; i++) {
+        var k = list[i].kind;
+        if (counts[k] === undefined) counts.other++; else counts[k]++;
+        if (list[i].label && list[i].label.length > 0) labeled = true;
+      }
+      return { supported: true, counts: counts, total: list.length, labelsPopulated: labeled };
+    }, function (e) {
+      return { supported: false, error: String(e && e.message || e) };
+    });
+  }
+
+  // ---- speechSynthesis voices ----------------------------------------
+
+  function getVoicesAsync(maxWaitMs) {
+    return new Promise(function (resolve) {
+      if (!("speechSynthesis" in window)) { resolve(null); return; }
+      var ss = window.speechSynthesis;
+      var got = ss.getVoices();
+      if (got && got.length) { resolve(got); return; }
+      var settled = false;
+      function done() {
+        if (settled) return; settled = true;
+        try { ss.removeEventListener("voiceschanged", onChange); } catch (e) {}
+        resolve(ss.getVoices() || []);
+      }
+      function onChange() { done(); }
+      try { ss.addEventListener("voiceschanged", onChange); } catch (e) {}
+      setTimeout(done, maxWaitMs);
+    });
+  }
+
+  function collectVoices() {
+    return getVoicesAsync(1500).then(function (voices) {
+      if (voices === null) return { supported: false };
+      var list = voices.map(function (v) { return { name: v.name, lang: v.lang }; });
+      list.sort(function (a, b) {
+        if (a.name < b.name) return -1; if (a.name > b.name) return 1;
+        return a.lang < b.lang ? -1 : (a.lang > b.lang ? 1 : 0);
+      });
+      return { supported: true, count: list.length, voices: list };
+    });
+  }
+
+  // ---- WebRTC ---------------------------------------------------------
+
+  function collectWebRTC() {
+    var ctor = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+    var present = !!ctor;
+    var out = { rtcPeerConnectionPresent: present, status: present ? "enabled" : "disabled" };
+    if (present) {
+      // Try constructing — Raven hard-disables RTC, which may surface as a throw.
+      try {
+        var pc = new ctor(null);
+        out.constructable = true;
+        try { pc.close(); } catch (e) {}
+      } catch (e) {
+        out.constructable = false;
+        out.constructError = String(e && e.message || e);
+      }
+    }
+    out.dataChannelPresent = safe(function () { return typeof RTCDataChannel !== "undefined"; });
+    return out;
+  }
+
+  // ---- feature presence ----------------------------------------------
+
+  function collectFeatures() {
+    return {
+      performanceMemoryPresent: safe(function () { return !!(window.performance && window.performance.memory); }),
+      cryptoSubtlePresent: safe(function () { return !!(window.crypto && window.crypto.subtle); }),
+      webglPresent: safe(function () {
+        var c = document.createElement("canvas");
+        return !!(c.getContext("webgl") || c.getContext("experimental-webgl"));
+      }),
+      webgpuPresent: safe(function () { return !!navigator.gpu; }),
+      offlineAudioPresent: safe(function () { return !!(window.OfflineAudioContext || window.webkitOfflineAudioContext); }),
+      speechSynthesisPresent: safe(function () { return "speechSynthesis" in window; }),
+      usbPresent: safe(function () { return !!navigator.usb; }),
+      bluetoothPresent: safe(function () { return !!navigator.bluetooth; }),
+      keyboardLayoutMapPresent: safe(function () { return !!(navigator.keyboard && navigator.keyboard.getLayoutMap); }),
+      geolocationPresent: safe(function () { return !!navigator.geolocation; })
+    };
+  }
+
+  // ---- orchestration --------------------------------------------------
+
+  function setStatus(text, cls) {
+    var el = document.getElementById("status");
+    el.textContent = text; el.className = cls;
+  }
+
+  function finalize(snapshot) {
+    var canonical = canonicalize(snapshot);
+    return sha256Text(canonical).then(function (hash) {
+      var pretty = JSON.stringify(sortedClone(snapshot), null, 2);
+      window.__RAVEN_FP__ = { hash: hash, snapshot: snapshot, canonical: canonical, probeVersion: PROBE_VERSION };
+      document.title = "FP:" + hash;
+      var hashEl = document.getElementById("hash");
+      hashEl.textContent = hash; hashEl.className = "";
+      var jsonEl = document.getElementById("json");
+      jsonEl.textContent = pretty; jsonEl.className = "";
+      setStatus("done", "done");
+      var ready = document.getElementById("ready");
+      ready.setAttribute("data-ready", "1");
+      ready.textContent = "ready";
+      return hash;
+    });
+  }
+
+  function main() {
+    var snapshot = {
+      schema: { probe: "raven-fingerprint-probe", version: PROBE_VERSION }
+    };
+    // synchronous surfaces
+    snapshot.navigator = collectNavigator();
+    snapshot.screen = collectScreen();
+    snapshot.window = collectWindow();
+    snapshot.intl = collectIntl();
+    snapshot.plugins = collectPlugins();
+    snapshot.webrtc = collectWebRTC();
+    snapshot.features = collectFeatures();
+    snapshot.fonts = collectFonts();
+
+    // async surfaces (each defended + timeboxed so #ready always fires)
+    var jobs = [
+      withTimeout(collectUserAgentData(), 3000, UNAVAILABLE).then(function (v) { snapshot.navigator.userAgentData = v; }),
+      withTimeout(collectCanvas(), 4000, { supported: false, error: "timeout" }).then(function (v) { snapshot.canvas = v; }),
+      withTimeout(collectWebGL("webgl"), 5000, { supported: false, error: "timeout" }).then(function (v) { snapshot.webgl1 = v; }),
+      withTimeout(collectWebGL("webgl2"), 5000, { supported: false, error: "timeout" }).then(function (v) { snapshot.webgl2 = v; }),
+      withTimeout(collectWebGPU(), 6000, { available: false, error: "timeout" }).then(function (v) { snapshot.webgpu = v; }),
+      withTimeout(collectAudio(), 6000, { supported: false, error: "timeout" }).then(function (v) { snapshot.audio = v; }),
+      withTimeout(collectMediaDevices(), 4000, { supported: false, error: "timeout" }).then(function (v) { snapshot.mediaDevices = v; }),
+      withTimeout(collectVoices(), 2500, { supported: false, error: "timeout" }).then(function (v) { snapshot.speechSynthesis = v; })
+    ];
+
+    return Promise.all(jobs).then(function () {
+      return finalize(snapshot);
+    }).catch(function (e) {
+      snapshot.probeError = String(e && e.message || e);
+      return finalize(snapshot);
+    });
+  }
+
+  // Kick off once (script is at end of body → DOM is present).
+  try {
+    main();
+  } catch (e) {
+    setStatus("probe error: " + (e && e.message || e), "pending");
+    var ready = document.getElementById("ready");
+    if (ready) { ready.setAttribute("data-ready", "1"); ready.textContent = "ready (error)"; }
+  }
+})();
+</script>

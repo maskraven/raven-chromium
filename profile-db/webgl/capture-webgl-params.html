@@ -1,0 +1,120 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Raven WebGL param capture</title>
+<style>
+  body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:60rem}
+  h1{font-size:1.2rem} .r{font-weight:600;color:#0a6}
+  textarea{width:100%;height:24rem;font:12px/1.4 ui-monospace,Menlo,monospace}
+  button{font-size:14px;padding:.4rem .8rem;margin-right:.5rem}
+  .note{color:#666}
+</style>
+<h1>Raven WebGL parameter capture</h1>
+<p class="note">Open this in <b>stock Chrome</b> (not the Raven build) on the machine whose GPU you want to
+record. It reads the real WebGL1+WebGL2 <code>getParameter</code> set, extensions, and precision, and
+emits JSON in the exact shape of <code>profile-db/webgl/webgl-gpu-params.json</code>. Copy the box or
+download the file and send it back.</p>
+<p>Detected renderer: <span id="rend" class="r">…</span></p>
+<button id="copy">Copy JSON</button><button id="dl">Download .json</button>
+<textarea id="out" readonly></textarea>
+<script>
+"use strict";
+function ctx(type){
+  const c = document.createElement("canvas"); c.width = c.height = 16;
+  const opts = {failIfMajorPerformanceCaveat:false, antialias:false, depth:true};
+  return c.getContext(type, opts);
+}
+function arr(v){ return (v && v.length !== undefined && !(typeof v === "string"))
+  ? Array.prototype.slice.call(v) : v; }
+function get(gl, name){ try { return arr(gl.getParameter(gl[name])); } catch(e){ return null; } }
+function pick(gl, names){ const o = {}; for (const n of names){ const v = get(gl, n); if (v !== null && v !== undefined) o[n] = v; } return o; }
+function unmasked(gl, which){
+  try { const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    return ext ? gl.getParameter(ext[which]) : null; } catch(e){ return null; }
+}
+function precision(gl){
+  // Fingerprint-relevant: fragment-shader HIGH_FLOAT [rangeMin, rangeMax, precision].
+  try { const p = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+    return p ? [p.rangeMin, p.rangeMax, p.precision] : null; } catch(e){ return null; }
+}
+function precisionAll(gl){
+  const out = {}; const shaders = ["VERTEX_SHADER","FRAGMENT_SHADER"];
+  const kinds = ["LOW_FLOAT","MEDIUM_FLOAT","HIGH_FLOAT","LOW_INT","MEDIUM_INT","HIGH_INT"];
+  for (const s of shaders) for (const k of kinds){
+    try { const p = gl.getShaderPrecisionFormat(gl[s], gl[k]);
+      if (p) out[s + "." + k] = [p.rangeMin, p.rangeMax, p.precision]; } catch(e){}
+  }
+  return out;
+}
+
+const WEBGL1 = ["MAX_TEXTURE_SIZE","MAX_CUBE_MAP_TEXTURE_SIZE","MAX_RENDERBUFFER_SIZE",
+  "MAX_VIEWPORT_DIMS","MAX_TEXTURE_IMAGE_UNITS","MAX_VERTEX_TEXTURE_IMAGE_UNITS",
+  "MAX_COMBINED_TEXTURE_IMAGE_UNITS","MAX_VERTEX_ATTRIBS","MAX_VERTEX_UNIFORM_VECTORS",
+  "MAX_FRAGMENT_UNIFORM_VECTORS","MAX_VARYING_VECTORS","ALIASED_LINE_WIDTH_RANGE",
+  "ALIASED_POINT_SIZE_RANGE"];
+const WEBGL2 = ["MAX_3D_TEXTURE_SIZE","MAX_ARRAY_TEXTURE_LAYERS","MAX_DRAW_BUFFERS",
+  "MAX_COLOR_ATTACHMENTS","MAX_SAMPLES","MAX_UNIFORM_BUFFER_BINDINGS","MAX_UNIFORM_BLOCK_SIZE",
+  "MAX_VERTEX_UNIFORM_BLOCKS","MAX_FRAGMENT_UNIFORM_BLOCKS","MAX_ELEMENT_INDEX",
+  "MAX_ELEMENTS_VERTICES","MAX_ELEMENTS_INDICES","MAX_VERTEX_UNIFORM_COMPONENTS",
+  "MAX_FRAGMENT_UNIFORM_COMPONENTS","MAX_VERTEX_OUTPUT_COMPONENTS","MAX_FRAGMENT_INPUT_COMPONENTS",
+  "MAX_VARYING_COMPONENTS","MAX_COMBINED_UNIFORM_BLOCKS","MAX_TEXTURE_LOD_BIAS",
+  "MIN_PROGRAM_TEXEL_OFFSET","MAX_PROGRAM_TEXEL_OFFSET","MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS",
+  "UNIFORM_BUFFER_OFFSET_ALIGNMENT","MAX_TEXTURE_MAX_ANISOTROPY_EXT"];
+
+function slug(os, renderer){
+  const r = (renderer || "").toLowerCase();
+  let g = "gpu";
+  const m = r.match(/(rtx\s?\d{3,4}|gtx\s?\d{3,4}|rx\s?\d{3,4}|apple\s?m\d(?:\s?\w+)?|iris\s?(?:xe|plus)|uhd\s?\d{3}|radeon|arc\s?\w+)/);
+  if (m) g = m[0].replace(/\s+/g, "-");
+  let backend = "gl";
+  if (/direct3d11|d3d11/.test(r)) backend = "d3d11";
+  else if (/metal/.test(r)) backend = "metal";
+  else if (/vulkan/.test(r)) backend = "vulkan";
+  else if (/opengl|mesa/.test(r)) backend = "mesa";
+  return (g + "-" + backend).replace(/[^a-z0-9-]/g, "");
+}
+
+const gl1 = ctx("webgl") || ctx("experimental-webgl");
+const gl2 = ctx("webgl2");
+let payload = { error: "no WebGL context available" };
+
+if (gl1){
+  const os = navigator.platform.startsWith("Win") ? "windows"
+           : navigator.platform.startsWith("Mac") ? "macos"
+           : navigator.platform.startsWith("Linux") ? "linux" : "unknown";
+  const renderer = unmasked(gl1, "UNMASKED_RENDERER_WEBGL");
+  const entry = {
+    match: { os: os, renderer_contains: (renderer || "").replace(/^ANGLE \(/, "").split(",")[1]?.trim() || renderer },
+    unmaskedVendor: unmasked(gl1, "UNMASKED_VENDOR_WEBGL"),
+    unmaskedRenderer: renderer,
+    glVersion: get(gl1, "VERSION"),
+    glslVersion: get(gl1, "SHADING_LANGUAGE_VERSION"),
+    webgl1: pick(gl1, WEBGL1),
+    webgl2: gl2 ? pick(gl2, WEBGL2) : null,
+    precision: { FLOAT: precision(gl1) },
+    precisionAll: precisionAll(gl1),
+    extensions1: (gl1.getSupportedExtensions() || []).sort(),
+    extensions2: gl2 ? (gl2.getSupportedExtensions() || []).sort() : null,
+    _capture: {
+      ua: navigator.userAgent,
+      platform: navigator.platform,
+      webgl2Version: gl2 ? get(gl2, "VERSION") : null,
+      note: "Captured by capture-webgl-params.html. Verify os/slug before merging."
+    }
+  };
+  payload = {}; payload[slug(os, renderer)] = entry;
+  document.getElementById("rend").textContent = renderer || "(no unmasked renderer)";
+}
+
+const text = JSON.stringify(payload, null, 2);
+document.getElementById("out").value = text;
+document.getElementById("copy").onclick = () => {
+  const t = document.getElementById("out"); t.select();
+  navigator.clipboard?.writeText(text).catch(()=>document.execCommand("copy"));
+};
+document.getElementById("dl").onclick = () => {
+  const b = new Blob([text], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(b);
+  a.download = "webgl-capture.json"; a.click();
+};
+</script>

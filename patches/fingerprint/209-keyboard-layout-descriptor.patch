@@ -1,0 +1,86 @@
+diff --git a/third_party/blink/renderer/modules/keyboard/keyboard_layout_map.cc b/third_party/blink/renderer/modules/keyboard/keyboard_layout_map.cc
+index 1e1f3a465cd08..29e01f3ec14ed 100644
+--- a/third_party/blink/renderer/modules/keyboard/keyboard_layout_map.cc
++++ b/third_party/blink/renderer/modules/keyboard/keyboard_layout_map.cc
+@@ -4,8 +4,72 @@
+ 
+ #include "third_party/blink/renderer/modules/keyboard/keyboard_layout_map.h"
+ 
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
++
+ namespace blink {
+ 
++namespace {
++
++// The KeyboardLayoutMap returned by navigator.keyboard.getLayoutMap() is derived
++// from the host OS/keyboard layout and is therefore a fingerprinting vector (its
++// size and per-code values leak the physical layout). When a Raven fingerprint
++// profile is active we replace it with a deterministic layout that is consistent
++// with the persona locale, so every persona reports an identical, canonical map.
++//
++// This is the set of "writing system keys" (UI Events code spec) that a standard
++// US-QWERTY / ANSI physical keyboard emits. ANSI boards omit the IntlBackslash,
++// IntlRo and IntlYen keys, giving a stable map of exactly 47 entries. Values are
++// the unmodified (lowercase) characters, matching what real US Chrome reports.
++HashMap<String, String> BuildCanonicalUsLayoutMap() {
++  struct Entry {
++    const char* code;
++    const char* key;
++  };
++  const Entry kEntries[] = {
++      // Number row (Row E).
++      {"Backquote", "`"}, {"Digit1", "1"},   {"Digit2", "2"},
++      {"Digit3", "3"},    {"Digit4", "4"},   {"Digit5", "5"},
++      {"Digit6", "6"},    {"Digit7", "7"},   {"Digit8", "8"},
++      {"Digit9", "9"},    {"Digit0", "0"},   {"Minus", "-"},
++      {"Equal", "="},
++      // Top letter row (Row D).
++      {"KeyQ", "q"},         {"KeyW", "w"},          {"KeyE", "e"},
++      {"KeyR", "r"},         {"KeyT", "t"},          {"KeyY", "y"},
++      {"KeyU", "u"},         {"KeyI", "i"},          {"KeyO", "o"},
++      {"KeyP", "p"},         {"BracketLeft", "["},   {"BracketRight", "]"},
++      {"Backslash", "\\"},
++      // Home row (Row C).
++      {"KeyA", "a"},      {"KeyS", "s"},   {"KeyD", "d"},
++      {"KeyF", "f"},      {"KeyG", "g"},   {"KeyH", "h"},
++      {"KeyJ", "j"},      {"KeyK", "k"},   {"KeyL", "l"},
++      {"Semicolon", ";"}, {"Quote", "'"},
++      // Bottom letter row (Row B).
++      {"KeyZ", "z"},   {"KeyX", "x"},    {"KeyC", "c"},
++      {"KeyV", "v"},   {"KeyB", "b"},    {"KeyN", "n"},
++      {"KeyM", "m"},   {"Comma", ","},   {"Period", "."},
++      {"Slash", "/"},
++  };
++
++  HashMap<String, String> map;
++  for (const auto& entry : kEntries) {
++    map.Set(String(entry.code), String(entry.key));
++  }
++  return map;
++}
++
++// Chooses which layout map to expose. When a fingerprint profile is active the
++// host-derived map is discarded in favour of the canonical, deterministic map;
++// otherwise the platform-provided map is used unchanged.
++HashMap<String, String> SelectLayoutMap(const HashMap<String, String>& map) {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    return BuildCanonicalUsLayoutMap();
++  }
++  return map;
++}
++
++}  // namespace
++
+ class KeyboardLayoutMapIterationSource final
+     : public PairSyncIterable<KeyboardLayoutMap>::IterationSource {
+  public:
+@@ -35,7 +99,7 @@ class KeyboardLayoutMapIterationSource final
+ };
+ 
+ KeyboardLayoutMap::KeyboardLayoutMap(const HashMap<String, String>& map)
+-    : layout_map_(map) {}
++    : layout_map_(SelectLayoutMap(map)) {}
+ 
+ PairSyncIterable<KeyboardLayoutMap>::IterationSource*
+ KeyboardLayoutMap::CreateIterationSource(ScriptState*) {

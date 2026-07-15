@@ -1,0 +1,22 @@
+# Raven-Chromium — pinned base tree
+# Recorded by Plan 00 (docs/plans/00-environment-and-baseline-bringup.md, T0.2).
+# Everything under build/ and patches/ assumes this pin. Do not bump without a
+# full rebase pass (docs/plans/01) + revalidation (docs/plans/04).
+
+# Base: ungoogled-chromium 150 (spec §7.1, decision §11.4)
+chromium_tag=150.0.7871.114
+ungoogled_tag=150.0.7871.114-1
+ungoogled_revision=1
+
+# --- Provenance / confirmation (2026-07-13) ---
+# ungoogled-software/ungoogled-chromium @ 150.0.7871.114-1 (latest 150 tag):
+#   chromium_version.txt = 150.0.7871.114
+#   revision.txt         = 1
+# 150.0.7871.114 confirmed a real Chromium Stable release (chromiumdash).
+# No tag lag: ungoogled-150 is properly cut — no RC/revision fallback needed.
+
+# --- macOS build toolchain pinned BY THIS Chromium tree ---
+# (build/config/mac/mac_sdk.gni + build/mac_toolchain.py @ 150.0.7871.114)
+xcode_version=26.5              # Xcode build 17F42
+mac_sdk_version=26.5            # SDK build 25F70
+mac_deployment_target=12.0

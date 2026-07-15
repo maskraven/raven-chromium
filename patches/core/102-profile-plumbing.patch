@@ -1,0 +1,243 @@
+diff --git a/chrome/browser/chrome_browser_main.cc b/chrome/browser/chrome_browser_main.cc
+index a52120f568eac..0e46ba9480374 100644
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -122,6 +122,7 @@
+ #include "components/tracing/common/background_tracing_utils.h"
+ #include "components/translate/core/browser/translate_metrics_logger_impl.h"
+ #include "components/ungoogled/fingerprint_accept_language.h"
++#include "components/ungoogled/fingerprint_profile_data.h"
+ #include "components/variations/service/variations_service.h"
+ #include "components/variations/synthetic_trials_active_group_id_provider.h"
+ #include "components/variations/variations_ids_provider.h"
+@@ -1207,6 +1208,7 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
+   // renderer language list can co-vary with the spoofed navigator.languages
+   // without any later UI-thread I/O.
+   ungoogled::InitFingerprintAcceptLanguages();
++  ungoogled::InitFingerprintProfileData();
+ 
+   if (startup_data_->chrome_feature_list_creator()->actual_locale().empty()) {
+     ShowMissingLocaleMessageBox();
+diff --git a/components/ungoogled/BUILD.gn b/components/ungoogled/BUILD.gn
+index c294a0b85d29b..76e41dd9290e3 100644
+--- a/components/ungoogled/BUILD.gn
++++ b/components/ungoogled/BUILD.gn
+@@ -7,6 +7,8 @@ component("ungoogled_switches") {
+     "fingerprint_accept_language.cc",
+     "fingerprint_accept_language.h",
+     "fingerprint_data.h",
++    "fingerprint_profile_data.cc",
++    "fingerprint_profile_data.h",
+     "ungoogled_switches.h",
+     "ungoogled_switches.cc",
+   ]
+diff --git a/components/ungoogled/fingerprint_profile_data.cc b/components/ungoogled/fingerprint_profile_data.cc
+new file mode 100644
+index 0000000000000..e05a6e2129b4b
+--- /dev/null
++++ b/components/ungoogled/fingerprint_profile_data.cc
+@@ -0,0 +1,66 @@
++// Copyright (c) 2020 The ungoogled-chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/ungoogled/fingerprint_profile_data.h"
++
++#include <string>
++
++#include "base/base64.h"
++#include "base/command_line.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/no_destructor.h"
++#include "components/ungoogled/ungoogled_switches.h"
++
++namespace ungoogled {
++
++namespace {
++
++// Process-wide cache for the base64 descriptor blob. Held in a
++// base::NoDestructor to avoid an exit-time destructor for the std::string.
++std::string* CacheStorage() {
++  static base::NoDestructor<std::string> cache;
++  return cache.get();
++}
++
++// Reads the descriptor JSON referenced by --fingerprint-profile and returns it
++// base64-encoded, or an empty string on any error (switch absent, empty path,
++// or unreadable file).
++std::string ComputeFromDescriptor() {
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  if (!command_line->HasSwitch(switches::kFingerprintProfile)) {
++    return std::string();
++  }
++
++  const base::FilePath path =
++      command_line->GetSwitchValuePath(switches::kFingerprintProfile);
++  if (path.empty()) {
++    return std::string();
++  }
++
++  std::string json;
++  if (!base::ReadFileToString(path, &json)) {
++    return std::string();
++  }
++
++  return base::Base64Encode(json);
++}
++
++}  // namespace
++
++void InitFingerprintProfileData() {
++  static bool initialized = false;
++  if (initialized) {
++    return;
++  }
++  initialized = true;
++  *CacheStorage() = ComputeFromDescriptor();
++}
++
++const std::string& GetFingerprintProfileData() {
++  return *CacheStorage();
++}
++
++}  // namespace ungoogled
+diff --git a/components/ungoogled/fingerprint_profile_data.h b/components/ungoogled/fingerprint_profile_data.h
+new file mode 100644
+index 0000000000000..9cca532fbd3ff
+--- /dev/null
++++ b/components/ungoogled/fingerprint_profile_data.h
+@@ -0,0 +1,44 @@
++// Copyright (c) 2020 The ungoogled-chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Raven: renderer-bound fingerprint descriptor blob, read once at startup.
++//
++// The browser reads the JSON descriptor referenced by the --fingerprint-profile
++// switch once, during browser startup (from a phase where blocking file I/O is
++// still permitted, e.g. PreCreateThreads), base64-encodes it, and caches it.
++// When a renderer is later spawned, RenderProcessHostImpl copies the cached
++// value into the child command line as --fingerprint-profile-data with no I/O.
++//
++// Reading the descriptor lazily on the first renderer spawn (the previous
++// core/102 behaviour) runs base::ReadFileToString on the UI thread inside
++// RenderProcessHostImpl::Init. After startup the UI thread is a
++// disallow-blocking scope (base::DisallowUnresponsiveTasks), so the first
++// *post-startup* renderer spawn — e.g. a CDP Target.createTarget from a driver
++// that pre-warmed no page (stock go-rod / chromedp) — fatally DCHECKs and aborts
++// the browser (tracked as R12). Reading once at startup avoids that entirely.
++
++#ifndef COMPONENTS_UNGOOGLED_FINGERPRINT_PROFILE_DATA_H_
++#define COMPONENTS_UNGOOGLED_FINGERPRINT_PROFILE_DATA_H_
++
++#include <string>
++
++#include "base/component_export.h"
++
++namespace ungoogled {
++
++// Reads and caches the base64(compact-json) fingerprint descriptor blob.
++// Performs blocking file I/O and MUST be called once during startup from a
++// phase where that is allowed (before base::DisallowUnresponsiveTasks).
++// Idempotent: only the first call does work. Leaves the cache empty when the
++// --fingerprint-profile switch is absent or the descriptor is unreadable.
++COMPONENT_EXPORT(UNGOOGLED) void InitFingerprintProfileData();
++
++// Returns the cached base64 descriptor blob (empty when no valid descriptor was
++// supplied). Does no I/O and is safe to call from any thread after
++// InitFingerprintProfileData().
++COMPONENT_EXPORT(UNGOOGLED) const std::string& GetFingerprintProfileData();
++
++}  // namespace ungoogled
++
++#endif  // COMPONENTS_UNGOOGLED_FINGERPRINT_PROFILE_DATA_H_
+diff --git a/components/ungoogled/ungoogled_switches.cc b/components/ungoogled/ungoogled_switches.cc
+index 49f325e01c52a..1f0124aa17e12 100644
+--- a/components/ungoogled/ungoogled_switches.cc
++++ b/components/ungoogled/ungoogled_switches.cc
+@@ -51,4 +51,13 @@ const char kFingerprintLocation[] = "fingerprint-location";
+ // Specify the timezone
+ const char kFingerprintTimezone[] = "timezone";
+ 
++// Raven (Plan 02 / core/102): path to a JSON fingerprint descriptor. The
++// browser reads + validates it and forwards it to renderers as
++// base64(compact-json) via kFingerprintProfileData.
++const char kFingerprintProfile[] = "fingerprint-profile";
++
++// base64(compact-json) descriptor blob handed to each renderer (set by the
++// browser from kFingerprintProfile; may also be supplied directly for testing).
++const char kFingerprintProfileData[] = "fingerprint-profile-data";
++
+ }  // namespace switches
+diff --git a/components/ungoogled/ungoogled_switches.h b/components/ungoogled/ungoogled_switches.h
+index 2ec06c3acde53..4225745436a6a 100644
+--- a/components/ungoogled/ungoogled_switches.h
++++ b/components/ungoogled/ungoogled_switches.h
+@@ -27,6 +27,10 @@ COMPONENT_EXPORT(UNGOOGLED) extern const char kFingerprintPlatform[];
+ COMPONENT_EXPORT(UNGOOGLED) extern const char kFingerprintPlatformVersion[];
+ COMPONENT_EXPORT(UNGOOGLED) extern const char kFingerprintLocation[];
+ COMPONENT_EXPORT(UNGOOGLED) extern const char kFingerprintTimezone[];
++
++// Raven (Plan 02 / core/102): fingerprint descriptor plumbing.
++COMPONENT_EXPORT(UNGOOGLED) extern const char kFingerprintProfile[];
++COMPONENT_EXPORT(UNGOOGLED) extern const char kFingerprintProfileData[];
+ }
+ 
+ #endif  // THIRD_PARTY_UNGOOGLED_FINGERPRINTING_SWITCHES_H_
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 77a0f6e7e8c67..470c797eddfb3 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -18,6 +18,7 @@
+ #include <vector>
+ 
+ #include "base/base_switches.h"
++#include "base/base64.h"
+ #include "base/byte_size.h"
+ #include "base/clang_profiling_buildflags.h"
+ #include "base/command_line.h"
+@@ -84,6 +85,7 @@
+ #include "components/services/storage/public/cpp/quota_error_or.h"
+ #include "components/services/storage/public/mojom/cache_storage_control.mojom.h"
+ #include "components/tracing/common/tracing_switches.h"
++#include "components/ungoogled/fingerprint_profile_data.h"
+ #include "components/ungoogled/ungoogled_switches.h"
+ #include "components/viz/common/switches.h"
+ #include "components/viz/host/gpu_client.h"
+@@ -3871,6 +3873,7 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+       switches::kFingerprintingCanvasMeasureTextNoise,
+       switches::kFingerprintingCanvasImageDataNoise,
+       switches::kFingerprint,
++      switches::kFingerprintProfileData,
+       switches::kFingerprintBrand,
+       switches::kFingerprintBrandVersion,
+       switches::kDisableSpoofing,
+@@ -4006,6 +4009,26 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+   };
+   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames);
+ 
++  // Raven (Plan 02 / core/102): forward the fingerprint descriptor to the
++  // renderer as base64(compact-json) via --fingerprint-profile-data. The
++  // descriptor is read + encoded once during startup
++  // (ungoogled::InitFingerprintProfileData, from a blocking-allowed phase); here
++  // we only copy the cached value. Reading the file here would run
++  // base::ReadFileToString on the UI thread during renderer Init, which is a
++  // disallow-blocking scope after startup, so the first post-startup renderer
++  // spawn (e.g. a CDP Target.createTarget from a driver that pre-warms no page)
++  // would fatally DCHECK and abort the browser (R12).
++  // (A blob passed directly on the browser command line is already copied above.)
++  if (browser_cmd.HasSwitch(switches::kFingerprintProfile) &&
++      !renderer_cmd->HasSwitch(switches::kFingerprintProfileData)) {
++    const std::string& encoded_descriptor =
++        ungoogled::GetFingerprintProfileData();
++    if (!encoded_descriptor.empty()) {
++      renderer_cmd->AppendSwitchASCII(switches::kFingerprintProfileData,
++                                      encoded_descriptor);
++    }
++  }
++
+   // |switches::kGaiaConfig| can be set via browser command-line arguments,
+   // usually by developers working on signin code. The switch, however, cannot
+   // be passed as is, because the renderer cannot read the file anyway. In those

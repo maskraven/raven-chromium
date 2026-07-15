@@ -1,0 +1,442 @@
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_persona_params_data.h b/third_party/blink/renderer/modules/webgl/webgl_persona_params_data.h
+--- a/third_party/blink/renderer/modules/webgl/webgl_persona_params_data.h
++++ b/third_party/blink/renderer/modules/webgl/webgl_persona_params_data.h
+@@ -749,114 +749,6 @@ constexpr const char* k_nvidia_rtx_3060_linux_ext2[] = {
+     "WEBGL_stencil_texturing",
+ };
+ 
+-// ---- intel-iris-xe-mesa ----
+-constexpr IntCap k_intel_iris_xe_mesa_int[] = {
+-    {0x0D33, 16384},  // MAX_TEXTURE_SIZE
+-    {0x851C, 16384},  // MAX_CUBE_MAP_TEXTURE_SIZE
+-    {0x84E8, 16384},  // MAX_RENDERBUFFER_SIZE
+-    {0x8872, 32},  // MAX_TEXTURE_IMAGE_UNITS
+-    {0x8B4C, 32},  // MAX_VERTEX_TEXTURE_IMAGE_UNITS
+-    {0x8B4D, 192},  // MAX_COMBINED_TEXTURE_IMAGE_UNITS
+-    {0x8869, 16},  // MAX_VERTEX_ATTRIBS
+-    {0x8DFB, 4096},  // MAX_VERTEX_UNIFORM_VECTORS
+-    {0x8DFD, 4096},  // MAX_FRAGMENT_UNIFORM_VECTORS
+-    {0x8DFC, 32},  // MAX_VARYING_VECTORS
+-    {0x8073, 2048},  // MAX_3D_TEXTURE_SIZE
+-    {0x88FF, 2048},  // MAX_ARRAY_TEXTURE_LAYERS
+-    {0x8824, 8},  // MAX_DRAW_BUFFERS
+-    {0x8CDF, 8},  // MAX_COLOR_ATTACHMENTS
+-    {0x8D57, 16},  // MAX_SAMPLES
+-    {0x8A2F, 90},  // MAX_UNIFORM_BUFFER_BINDINGS
+-    {0x8A2B, 15},  // MAX_VERTEX_UNIFORM_BLOCKS
+-    {0x8A2D, 15},  // MAX_FRAGMENT_UNIFORM_BLOCKS
+-};
+-constexpr Int64Cap k_intel_iris_xe_mesa_int64[] = {
+-    {0x8A30, 65536LL},  // MAX_UNIFORM_BLOCK_SIZE
+-    {0x8D6B, 4294967294LL},  // MAX_ELEMENT_INDEX
+-};
+-constexpr FloatArr2Cap k_intel_iris_xe_mesa_farr2[] = {
+-    {0x846E, 1.0f, 8.0f},  // ALIASED_LINE_WIDTH_RANGE
+-    {0x846D, 1.0f, 2048.0f},  // ALIASED_POINT_SIZE_RANGE
+-};
+-constexpr IntArr2Cap k_intel_iris_xe_mesa_iarr2[] = {
+-    {0x0D3A, 16384, 16384},  // MAX_VIEWPORT_DIMS
+-};
+-constexpr const char* k_intel_iris_xe_mesa_ext1[] = {
+-    "ANGLE_instanced_arrays",
+-    "EXT_blend_minmax",
+-    "EXT_clip_control",
+-    "EXT_color_buffer_half_float",
+-    "EXT_depth_clamp",
+-    "EXT_disjoint_timer_query",
+-    "EXT_float_blend",
+-    "EXT_frag_depth",
+-    "EXT_polygon_offset_clamp",
+-    "EXT_sRGB",
+-    "EXT_shader_texture_lod",
+-    "EXT_texture_compression_bptc",
+-    "EXT_texture_compression_rgtc",
+-    "EXT_texture_filter_anisotropic",
+-    "EXT_texture_mirror_clamp_to_edge",
+-    "KHR_parallel_shader_compile",
+-    "OES_element_index_uint",
+-    "OES_fbo_render_mipmap",
+-    "OES_standard_derivatives",
+-    "OES_texture_float",
+-    "OES_texture_float_linear",
+-    "OES_texture_half_float",
+-    "OES_texture_half_float_linear",
+-    "OES_vertex_array_object",
+-    "WEBGL_color_buffer_float",
+-    "WEBGL_compressed_texture_astc",
+-    "WEBGL_compressed_texture_etc",
+-    "WEBGL_compressed_texture_etc1",
+-    "WEBGL_compressed_texture_s3tc",
+-    "WEBGL_compressed_texture_s3tc_srgb",
+-    "WEBGL_debug_renderer_info",
+-    "WEBGL_debug_shaders",
+-    "WEBGL_depth_texture",
+-    "WEBGL_draw_buffers",
+-    "WEBGL_lose_context",
+-    "WEBGL_multi_draw",
+-    "WEBGL_polygon_mode",
+-};
+-constexpr const char* k_intel_iris_xe_mesa_ext2[] = {
+-    "EXT_clip_control",
+-    "EXT_color_buffer_float",
+-    "EXT_color_buffer_half_float",
+-    "EXT_conservative_depth",
+-    "EXT_depth_clamp",
+-    "EXT_disjoint_timer_query_webgl2",
+-    "EXT_float_blend",
+-    "EXT_polygon_offset_clamp",
+-    "EXT_render_snorm",
+-    "EXT_texture_compression_bptc",
+-    "EXT_texture_compression_rgtc",
+-    "EXT_texture_filter_anisotropic",
+-    "EXT_texture_mirror_clamp_to_edge",
+-    "EXT_texture_norm16",
+-    "KHR_parallel_shader_compile",
+-    "NV_shader_noperspective_interpolation",
+-    "OES_draw_buffers_indexed",
+-    "OES_sample_variables",
+-    "OES_shader_multisample_interpolation",
+-    "OES_texture_float_linear",
+-    "OVR_multiview2",
+-    "WEBGL_clip_cull_distance",
+-    "WEBGL_compressed_texture_astc",
+-    "WEBGL_compressed_texture_etc",
+-    "WEBGL_compressed_texture_s3tc",
+-    "WEBGL_compressed_texture_s3tc_srgb",
+-    "WEBGL_debug_renderer_info",
+-    "WEBGL_debug_shaders",
+-    "WEBGL_lose_context",
+-    "WEBGL_multi_draw",
+-    "WEBGL_polygon_mode",
+-    "WEBGL_provoking_vertex",
+-    "WEBGL_render_shared_exponent",
+-    "WEBGL_stencil_texturing",
+-};
+-
+ // ---- apple-m1-metal ----
+ constexpr IntCap k_apple_m1_metal_int[] = {
+     {0x0D33, 16384},  // MAX_TEXTURE_SIZE
+@@ -868,19 +760,32 @@ constexpr IntCap k_apple_m1_metal_int[] = {
+     {0x8869, 16},  // MAX_VERTEX_ATTRIBS
+     {0x8DFB, 1024},  // MAX_VERTEX_UNIFORM_VECTORS
+     {0x8DFD, 1024},  // MAX_FRAGMENT_UNIFORM_VECTORS
+-    {0x8DFC, 31},  // MAX_VARYING_VECTORS
++    {0x8DFC, 30},  // MAX_VARYING_VECTORS
+     {0x8073, 2048},  // MAX_3D_TEXTURE_SIZE
+     {0x88FF, 2048},  // MAX_ARRAY_TEXTURE_LAYERS
+     {0x8824, 8},  // MAX_DRAW_BUFFERS
+     {0x8CDF, 8},  // MAX_COLOR_ATTACHMENTS
+     {0x8D57, 4},  // MAX_SAMPLES
+-    {0x8A2F, 80},  // MAX_UNIFORM_BUFFER_BINDINGS
++    {0x8A2F, 32},  // MAX_UNIFORM_BUFFER_BINDINGS
+     {0x8A2B, 16},  // MAX_VERTEX_UNIFORM_BLOCKS
+     {0x8A2D, 16},  // MAX_FRAGMENT_UNIFORM_BLOCKS
++    {0x8B4A, 4096},  // MAX_VERTEX_UNIFORM_COMPONENTS
++    {0x8B49, 4096},  // MAX_FRAGMENT_UNIFORM_COMPONENTS
++    {0x9122, 120},  // MAX_VERTEX_OUTPUT_COMPONENTS
++    {0x9125, 120},  // MAX_FRAGMENT_INPUT_COMPONENTS
++    {0x8B4B, 120},  // MAX_VARYING_COMPONENTS
++    {0x8A2E, 32},  // MAX_COMBINED_UNIFORM_BLOCKS
++    {0x8904, -8},  // MIN_PROGRAM_TEXEL_OFFSET
++    {0x8905, 7},  // MAX_PROGRAM_TEXEL_OFFSET
++    {0x8C8A, 4},  // MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS
++    {0x8A34, 16},  // UNIFORM_BUFFER_OFFSET_ALIGNMENT
+ };
+ constexpr Int64Cap k_apple_m1_metal_int64[] = {
+-    {0x8A30, 65536LL},  // MAX_UNIFORM_BLOCK_SIZE
+-    {0x8D6B, 4294967295LL},  // MAX_ELEMENT_INDEX
++    {0x8A30, 16384LL},  // MAX_UNIFORM_BLOCK_SIZE
++    {0x8D6B, 4294967294LL},  // MAX_ELEMENT_INDEX
++};
++constexpr FloatCap k_apple_m1_metal_float[] = {
++    {0x84FD, 15.0f},  // MAX_TEXTURE_LOD_BIAS
+ };
+ constexpr FloatArr2Cap k_apple_m1_metal_farr2[] = {
+     {0x846E, 1.0f, 1.0f},  // ALIASED_LINE_WIDTH_RANGE
+@@ -939,15 +844,18 @@ constexpr const char* k_apple_m1_metal_ext2[] = {
+     "EXT_disjoint_timer_query_webgl2",
+     "EXT_float_blend",
+     "EXT_polygon_offset_clamp",
++    "EXT_render_snorm",
+     "EXT_texture_compression_bptc",
+     "EXT_texture_compression_rgtc",
+     "EXT_texture_filter_anisotropic",
++    "EXT_texture_mirror_clamp_to_edge",
+     "EXT_texture_norm16",
+     "KHR_parallel_shader_compile",
+     "NV_shader_noperspective_interpolation",
+     "OES_draw_buffers_indexed",
++    "OES_sample_variables",
++    "OES_shader_multisample_interpolation",
+     "OES_texture_float_linear",
+-    "OVR_multiview2",
+     "WEBGL_blend_func_extended",
+     "WEBGL_clip_cull_distance",
+     "WEBGL_compressed_texture_astc",
+@@ -960,7 +868,10 @@ constexpr const char* k_apple_m1_metal_ext2[] = {
+     "WEBGL_debug_shaders",
+     "WEBGL_lose_context",
+     "WEBGL_multi_draw",
++    "WEBGL_polygon_mode",
+     "WEBGL_provoking_vertex",
++    "WEBGL_render_shared_exponent",
++    "WEBGL_stencil_texturing",
+ };
+ 
+ // ---- apple-m3pro-metal ----
+@@ -974,19 +885,32 @@ constexpr IntCap k_apple_m3pro_metal_int[] = {
+     {0x8869, 16},  // MAX_VERTEX_ATTRIBS
+     {0x8DFB, 1024},  // MAX_VERTEX_UNIFORM_VECTORS
+     {0x8DFD, 1024},  // MAX_FRAGMENT_UNIFORM_VECTORS
+-    {0x8DFC, 31},  // MAX_VARYING_VECTORS
++    {0x8DFC, 30},  // MAX_VARYING_VECTORS
+     {0x8073, 2048},  // MAX_3D_TEXTURE_SIZE
+     {0x88FF, 2048},  // MAX_ARRAY_TEXTURE_LAYERS
+     {0x8824, 8},  // MAX_DRAW_BUFFERS
+     {0x8CDF, 8},  // MAX_COLOR_ATTACHMENTS
+     {0x8D57, 4},  // MAX_SAMPLES
+-    {0x8A2F, 80},  // MAX_UNIFORM_BUFFER_BINDINGS
++    {0x8A2F, 32},  // MAX_UNIFORM_BUFFER_BINDINGS
+     {0x8A2B, 16},  // MAX_VERTEX_UNIFORM_BLOCKS
+     {0x8A2D, 16},  // MAX_FRAGMENT_UNIFORM_BLOCKS
++    {0x8B4A, 4096},  // MAX_VERTEX_UNIFORM_COMPONENTS
++    {0x8B49, 4096},  // MAX_FRAGMENT_UNIFORM_COMPONENTS
++    {0x9122, 120},  // MAX_VERTEX_OUTPUT_COMPONENTS
++    {0x9125, 120},  // MAX_FRAGMENT_INPUT_COMPONENTS
++    {0x8B4B, 120},  // MAX_VARYING_COMPONENTS
++    {0x8A2E, 32},  // MAX_COMBINED_UNIFORM_BLOCKS
++    {0x8904, -8},  // MIN_PROGRAM_TEXEL_OFFSET
++    {0x8905, 7},  // MAX_PROGRAM_TEXEL_OFFSET
++    {0x8C8A, 4},  // MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS
++    {0x8A34, 16},  // UNIFORM_BUFFER_OFFSET_ALIGNMENT
+ };
+ constexpr Int64Cap k_apple_m3pro_metal_int64[] = {
+-    {0x8A30, 65536LL},  // MAX_UNIFORM_BLOCK_SIZE
+-    {0x8D6B, 4294967295LL},  // MAX_ELEMENT_INDEX
++    {0x8A30, 16384LL},  // MAX_UNIFORM_BLOCK_SIZE
++    {0x8D6B, 4294967294LL},  // MAX_ELEMENT_INDEX
++};
++constexpr FloatCap k_apple_m3pro_metal_float[] = {
++    {0x84FD, 15.0f},  // MAX_TEXTURE_LOD_BIAS
+ };
+ constexpr FloatArr2Cap k_apple_m3pro_metal_farr2[] = {
+     {0x846E, 1.0f, 1.0f},  // ALIASED_LINE_WIDTH_RANGE
+@@ -1045,15 +969,18 @@ constexpr const char* k_apple_m3pro_metal_ext2[] = {
+     "EXT_disjoint_timer_query_webgl2",
+     "EXT_float_blend",
+     "EXT_polygon_offset_clamp",
++    "EXT_render_snorm",
+     "EXT_texture_compression_bptc",
+     "EXT_texture_compression_rgtc",
+     "EXT_texture_filter_anisotropic",
++    "EXT_texture_mirror_clamp_to_edge",
+     "EXT_texture_norm16",
+     "KHR_parallel_shader_compile",
+     "NV_shader_noperspective_interpolation",
+     "OES_draw_buffers_indexed",
++    "OES_sample_variables",
++    "OES_shader_multisample_interpolation",
+     "OES_texture_float_linear",
+-    "OVR_multiview2",
+     "WEBGL_blend_func_extended",
+     "WEBGL_clip_cull_distance",
+     "WEBGL_compressed_texture_astc",
+@@ -1066,111 +993,10 @@ constexpr const char* k_apple_m3pro_metal_ext2[] = {
+     "WEBGL_debug_shaders",
+     "WEBGL_lose_context",
+     "WEBGL_multi_draw",
+-    "WEBGL_provoking_vertex",
+-};
+-
+-// ---- intel-iris-plus-metal ----
+-constexpr IntCap k_intel_iris_plus_metal_int[] = {
+-    {0x0D33, 16384},  // MAX_TEXTURE_SIZE
+-    {0x851C, 16384},  // MAX_CUBE_MAP_TEXTURE_SIZE
+-    {0x84E8, 16384},  // MAX_RENDERBUFFER_SIZE
+-    {0x8872, 16},  // MAX_TEXTURE_IMAGE_UNITS
+-    {0x8B4C, 16},  // MAX_VERTEX_TEXTURE_IMAGE_UNITS
+-    {0x8B4D, 32},  // MAX_COMBINED_TEXTURE_IMAGE_UNITS
+-    {0x8869, 16},  // MAX_VERTEX_ATTRIBS
+-    {0x8DFB, 1024},  // MAX_VERTEX_UNIFORM_VECTORS
+-    {0x8DFD, 1024},  // MAX_FRAGMENT_UNIFORM_VECTORS
+-    {0x8DFC, 31},  // MAX_VARYING_VECTORS
+-    {0x8073, 2048},  // MAX_3D_TEXTURE_SIZE
+-    {0x88FF, 2048},  // MAX_ARRAY_TEXTURE_LAYERS
+-    {0x8824, 8},  // MAX_DRAW_BUFFERS
+-    {0x8CDF, 8},  // MAX_COLOR_ATTACHMENTS
+-    {0x8D57, 4},  // MAX_SAMPLES
+-    {0x8A2F, 24},  // MAX_UNIFORM_BUFFER_BINDINGS
+-    {0x8A2B, 12},  // MAX_VERTEX_UNIFORM_BLOCKS
+-    {0x8A2D, 12},  // MAX_FRAGMENT_UNIFORM_BLOCKS
+-};
+-constexpr Int64Cap k_intel_iris_plus_metal_int64[] = {
+-    {0x8A30, 65536LL},  // MAX_UNIFORM_BLOCK_SIZE
+-    {0x8D6B, 4294967294LL},  // MAX_ELEMENT_INDEX
+-};
+-constexpr FloatArr2Cap k_intel_iris_plus_metal_farr2[] = {
+-    {0x846E, 1.0f, 1.0f},  // ALIASED_LINE_WIDTH_RANGE
+-    {0x846D, 1.0f, 511.0f},  // ALIASED_POINT_SIZE_RANGE
+-};
+-constexpr IntArr2Cap k_intel_iris_plus_metal_iarr2[] = {
+-    {0x0D3A, 16384, 16384},  // MAX_VIEWPORT_DIMS
+-};
+-constexpr const char* k_intel_iris_plus_metal_ext1[] = {
+-    "ANGLE_instanced_arrays",
+-    "EXT_blend_minmax",
+-    "EXT_clip_control",
+-    "EXT_color_buffer_half_float",
+-    "EXT_depth_clamp",
+-    "EXT_disjoint_timer_query",
+-    "EXT_float_blend",
+-    "EXT_frag_depth",
+-    "EXT_polygon_offset_clamp",
+-    "EXT_sRGB",
+-    "EXT_shader_texture_lod",
+-    "EXT_texture_compression_bptc",
+-    "EXT_texture_compression_rgtc",
+-    "EXT_texture_filter_anisotropic",
+-    "EXT_texture_mirror_clamp_to_edge",
+-    "KHR_parallel_shader_compile",
+-    "OES_element_index_uint",
+-    "OES_fbo_render_mipmap",
+-    "OES_standard_derivatives",
+-    "OES_texture_float",
+-    "OES_texture_float_linear",
+-    "OES_texture_half_float",
+-    "OES_texture_half_float_linear",
+-    "OES_vertex_array_object",
+-    "WEBGL_blend_func_extended",
+-    "WEBGL_color_buffer_float",
+-    "WEBGL_compressed_texture_astc",
+-    "WEBGL_compressed_texture_etc",
+-    "WEBGL_compressed_texture_etc1",
+-    "WEBGL_compressed_texture_s3tc",
+-    "WEBGL_compressed_texture_s3tc_srgb",
+-    "WEBGL_debug_renderer_info",
+-    "WEBGL_debug_shaders",
+-    "WEBGL_depth_texture",
+-    "WEBGL_draw_buffers",
+-    "WEBGL_lose_context",
+-    "WEBGL_multi_draw",
+     "WEBGL_polygon_mode",
+-};
+-constexpr const char* k_intel_iris_plus_metal_ext2[] = {
+-    "EXT_clip_control",
+-    "EXT_color_buffer_float",
+-    "EXT_color_buffer_half_float",
+-    "EXT_conservative_depth",
+-    "EXT_depth_clamp",
+-    "EXT_disjoint_timer_query_webgl2",
+-    "EXT_float_blend",
+-    "EXT_polygon_offset_clamp",
+-    "EXT_texture_compression_bptc",
+-    "EXT_texture_compression_rgtc",
+-    "EXT_texture_filter_anisotropic",
+-    "EXT_texture_norm16",
+-    "KHR_parallel_shader_compile",
+-    "NV_shader_noperspective_interpolation",
+-    "OES_draw_buffers_indexed",
+-    "OES_texture_float_linear",
+-    "OVR_multiview2",
+-    "WEBGL_blend_func_extended",
+-    "WEBGL_clip_cull_distance",
+-    "WEBGL_compressed_texture_astc",
+-    "WEBGL_compressed_texture_etc",
+-    "WEBGL_compressed_texture_etc1",
+-    "WEBGL_compressed_texture_s3tc",
+-    "WEBGL_compressed_texture_s3tc_srgb",
+-    "WEBGL_debug_renderer_info",
+-    "WEBGL_debug_shaders",
+-    "WEBGL_lose_context",
+-    "WEBGL_multi_draw",
+     "WEBGL_provoking_vertex",
++    "WEBGL_render_shared_exponent",
++    "WEBGL_stencil_texturing",
+ };
+ 
+ constexpr PersonaEntry kPersonaTable[] = {
+@@ -1294,26 +1120,6 @@ constexpr PersonaEntry kPersonaTable[] = {
+         /*extensions1*/ k_nvidia_rtx_3060_linux_ext1, 34,
+         /*extensions2*/ k_nvidia_rtx_3060_linux_ext2, 32,
+     },
+-    {
+-        /*key*/ "intel-iris-xe-mesa",
+-        /*os*/ "linux",
+-        /*renderer_substring*/ "Xe Graphics (TGL GT2)",
+-        /*unmasked_vendor*/ "Google Inc. (Intel)",
+-        /*unmasked_renderer*/ "ANGLE (Intel, Mesa Intel(R) Xe Graphics (TGL GT2), OpenGL 4.6 (Core Profile) Mesa 23.1.0)",
+-        /*gl_version_webgl1*/ "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+-        /*gl_version_webgl2*/ "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+-        /*glsl_version_webgl1*/ "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)",
+-        /*glsl_version_webgl2*/ "WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)",
+-        /*int_caps*/ k_intel_iris_xe_mesa_int, 18,
+-        /*int64_caps*/ k_intel_iris_xe_mesa_int64, 2,
+-        /*float_caps*/ nullptr, 0,
+-        /*float_arr2_caps*/ k_intel_iris_xe_mesa_farr2, 2,
+-        /*int_arr2_caps*/ k_intel_iris_xe_mesa_iarr2, 1,
+-        /*has_float_precision*/ true,
+-        /*float_precision*/ {127, 127, 23},
+-        /*extensions1*/ k_intel_iris_xe_mesa_ext1, 37,
+-        /*extensions2*/ k_intel_iris_xe_mesa_ext2, 34,
+-    },
+     {
+         /*key*/ "apple-m1-metal",
+         /*os*/ "macos",
+@@ -1324,15 +1130,15 @@ constexpr PersonaEntry kPersonaTable[] = {
+         /*gl_version_webgl2*/ "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+         /*glsl_version_webgl1*/ "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)",
+         /*glsl_version_webgl2*/ "WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)",
+-        /*int_caps*/ k_apple_m1_metal_int, 18,
++        /*int_caps*/ k_apple_m1_metal_int, 28,
+         /*int64_caps*/ k_apple_m1_metal_int64, 2,
+-        /*float_caps*/ nullptr, 0,
++        /*float_caps*/ k_apple_m1_metal_float, 1,
+         /*float_arr2_caps*/ k_apple_m1_metal_farr2, 2,
+         /*int_arr2_caps*/ k_apple_m1_metal_iarr2, 1,
+         /*has_float_precision*/ true,
+         /*float_precision*/ {127, 127, 23},
+         /*extensions1*/ k_apple_m1_metal_ext1, 39,
+-        /*extensions2*/ k_apple_m1_metal_ext2, 30,
++        /*extensions2*/ k_apple_m1_metal_ext2, 36,
+     },
+     {
+         /*key*/ "apple-m3pro-metal",
+@@ -1344,35 +1150,15 @@ constexpr PersonaEntry kPersonaTable[] = {
+         /*gl_version_webgl2*/ "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+         /*glsl_version_webgl1*/ "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)",
+         /*glsl_version_webgl2*/ "WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)",
+-        /*int_caps*/ k_apple_m3pro_metal_int, 18,
++        /*int_caps*/ k_apple_m3pro_metal_int, 28,
+         /*int64_caps*/ k_apple_m3pro_metal_int64, 2,
+-        /*float_caps*/ nullptr, 0,
++        /*float_caps*/ k_apple_m3pro_metal_float, 1,
+         /*float_arr2_caps*/ k_apple_m3pro_metal_farr2, 2,
+         /*int_arr2_caps*/ k_apple_m3pro_metal_iarr2, 1,
+         /*has_float_precision*/ true,
+         /*float_precision*/ {127, 127, 23},
+         /*extensions1*/ k_apple_m3pro_metal_ext1, 39,
+-        /*extensions2*/ k_apple_m3pro_metal_ext2, 30,
+-    },
+-    {
+-        /*key*/ "intel-iris-plus-metal",
+-        /*os*/ "macos",
+-        /*renderer_substring*/ "Iris(TM) Plus Graphics",
+-        /*unmasked_vendor*/ "Google Inc. (Intel Inc.)",
+-        /*unmasked_renderer*/ "ANGLE (Intel Inc., ANGLE Metal Renderer: Intel(R) Iris(TM) Plus Graphics, Unspecified Version)",
+-        /*gl_version_webgl1*/ "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+-        /*gl_version_webgl2*/ "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+-        /*glsl_version_webgl1*/ "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)",
+-        /*glsl_version_webgl2*/ "WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)",
+-        /*int_caps*/ k_intel_iris_plus_metal_int, 18,
+-        /*int64_caps*/ k_intel_iris_plus_metal_int64, 2,
+-        /*float_caps*/ nullptr, 0,
+-        /*float_arr2_caps*/ k_intel_iris_plus_metal_farr2, 2,
+-        /*int_arr2_caps*/ k_intel_iris_plus_metal_iarr2, 1,
+-        /*has_float_precision*/ true,
+-        /*float_precision*/ {127, 127, 23},
+-        /*extensions1*/ k_intel_iris_plus_metal_ext1, 38,
+-        /*extensions2*/ k_intel_iris_plus_metal_ext2, 29,
++        /*extensions2*/ k_apple_m3pro_metal_ext2, 36,
+     },
+ };
+ 

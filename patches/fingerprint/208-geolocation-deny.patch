@@ -1,0 +1,33 @@
+diff --git a/third_party/blink/renderer/core/geolocation/geolocation.cc b/third_party/blink/renderer/core/geolocation/geolocation.cc
+index 32bbb76f92c11..2afda5bb113f9 100644
+--- a/third_party/blink/renderer/core/geolocation/geolocation.cc
++++ b/third_party/blink/renderer/core/geolocation/geolocation.cc
+@@ -51,6 +51,7 @@
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/core/timing/epoch_time_stamp.h"
+ #include "third_party/blink/renderer/platform/bindings/source_location.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ 
+ namespace blink {
+@@ -340,6 +341,20 @@ int Geolocation::WatchPositionInternal(GeoNotifier* notifier) {
+ }
+ 
+ void Geolocation::StartRequest(GeoNotifier* notifier) {
++  // Raven descriptor (Plan 03): when a fingerprint profile is active, deny
++  // geolocation outright. The descriptor carries no coordinate field yet, so
++  // returning any real position would leak the true device location. Report
++  // PERMISSION_DENIED through the same fatal-error path used by the
++  // insecure-origin and permissions-policy denials below, and skip querying
++  // the real device entirely.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    notifier->SetFatalError(MakeGarbageCollected<GeolocationPositionError>(
++        GeolocationPositionError::kPermissionDenied,
++        kPermissionDeniedErrorMessage));
++    return;
++  }
++
+   RecordOriginTypeAccess();
+   String error_message;
+   if (!GetFrame()->GetSettings()->GetAllowGeolocationOnInsecureOrigins() &&

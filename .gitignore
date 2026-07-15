@@ -1,0 +1,14 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Build / packaging outputs (if anyone builds/pkgs in-tree)
+/dist/
+/out/
+
+# Editor cruft
+*.swp
+*~

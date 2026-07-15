@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "seed": 1029384756657483920,
+  "os": "windows",
+  "platform": "Win32",
+  "chromeMajor": 150,
+  "hardwareConcurrency": 8,
+  "deviceMemory": 8,
+  "gpu": {
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "architecture": "gen-12lp",
+    "device": "Intel(R) Iris(R) Xe Graphics"
+  },
+  "screen": {
+    "w": 1536,
+    "h": 864,
+    "dpr": 1.25,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "availW": 1536,
+    "availH": 826
+  },
+  "languages": [
+    "en-US",
+    "en"
+  ],
+  "locale": "en-US",
+  "timezone": "America/Chicago"
+}

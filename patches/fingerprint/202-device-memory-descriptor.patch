@@ -1,0 +1,42 @@
+diff --git a/third_party/blink/renderer/core/frame/navigator_device_memory.cc b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+index 792ee43f32fde..62d89faa34166 100644
+--- a/third_party/blink/renderer/core/frame/navigator_device_memory.cc
++++ b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+@@ -8,10 +8,37 @@
+ #include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-shared.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ 
+ namespace blink {
+ 
++namespace {
++
++// navigator.deviceMemory is spec-bucketed to {0.25,0.5,1,2,4,8}. Clamp the
++// descriptor value DOWN to the nearest allowed bucket so the exposed value is
++// always a legal member of the set (a value >8 is a tell — round down to 8).
++float ClampDeviceMemoryToBucket(double memory) {
++  constexpr float kBuckets[] = {0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f};
++  float result = kBuckets[0];
++  for (float bucket : kBuckets) {
++    if (memory >= bucket) {
++      result = bucket;
++    }
++  }
++  return result;
++}
++
++}  // namespace
++
+ float NavigatorDeviceMemory::deviceMemory() const {
++  // Raven descriptor (Plan 03): navigator.deviceMemory co-varies with the
++  // persona; read from the process-global fingerprint::Profile and spec-bucket
++  // it. Highest precedence sits above the baseline's fixed fallback below.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().device_memory > 0) {
++    return ClampDeviceMemoryToBucket(profile.descriptor().device_memory);
++  }
++
+   return 8;
+   // return ApproximatedDeviceMemory::GetApproximatedDeviceMemory();
+ }

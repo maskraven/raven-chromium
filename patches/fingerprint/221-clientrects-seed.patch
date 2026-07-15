@@ -1,0 +1,35 @@
+diff --git a/third_party/blink/renderer/core/dom/document.cc b/third_party/blink/renderer/core/dom/document.cc
+index 85a8488955ced..99605fa0a6328 100644
+--- a/third_party/blink/renderer/core/dom/document.cc
++++ b/third_party/blink/renderer/core/dom/document.cc
+@@ -378,6 +378,7 @@
+ #include "third_party/blink/renderer/platform/bindings/source_location.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_dom_wrapper.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/fonts/font_performance.h"
+ #include "third_party/blink/renderer/platform/geometry/length_functions.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+@@ -1043,7 +1044,21 @@ Document::Document(const DocumentInit& initializer,
+   TRACE_EVENT("blink", "Document::Document", perfetto::Flow::FromPointer(this));
+   DCHECK(agent_);
+     const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kFingerprint)) {
++  if (fingerprint::Profile::Get().active()) {
++    // Re-key client-rects jitter to the descriptor seed (design §1). Two draws
++    // from the canvas surface stream give statistically independent x/y noise
++    // factors, each mapped into ±0.001px. Named locals: C++ arg-eval order is
++    // unspecified, so the two prng() pulls must be sequenced explicitly.
++    auto prng = fingerprint::SurfacePrng(fingerprint::Profile::Get().seed(),
++                                         fingerprint::Surface::kCanvas);
++    const uint64_t draw_x = prng();
++    const uint64_t draw_y = prng();
++    const double unit_x = (draw_x >> 11) * (1.0 / 9007199254740992.0);
++    const double unit_y = (draw_y >> 11) * (1.0 / 9007199254740992.0);
++    // unit in [0,1) -> signed factor in [-1,1) * 0.001px.
++    noise_factor_x_ = (unit_x * 2.0 - 1.0) * 0.001;
++    noise_factor_y_ = (unit_y * 2.0 - 1.0) * 0.001;
++  } else if (command_line->HasSwitch(switches::kFingerprint)) {
+     std::string seed_str = command_line->GetSwitchValueASCII(switches::kFingerprint);
+     // 为x和y使用不同的组合字符串
+     std::string combined_x = seed_str + "offset_x";

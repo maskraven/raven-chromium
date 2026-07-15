@@ -1,0 +1,6 @@
+# third_party/lifted overrides the repo-global `-third_party/abseil-cpp/absl/random`
+# deny (DEPS line ~4209) so farbling_prng.h may include absl/random/random.h.
+# This is the same allowlisting Brave carries for its farbling_prng target.
+include_rules = [
+  "+third_party/abseil-cpp/absl/random",
+]

@@ -1,0 +1,84 @@
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 69ffc2b05f75d..07266903c4024 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -35,6 +35,7 @@
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/frame/settings.h"
+ #include "third_party/blink/renderer/core/page/chrome_client.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "ui/display/screen_info.h"
+ #include "ui/display/screen_infos.h"
+ 
+@@ -79,18 +80,36 @@ bool Screen::AreWebExposedScreenPropertiesEqual(
+ }
+ 
+ int Screen::height() const {
++  // Raven descriptor (Plan 03): screen.height co-varies with the persona; read
++  // verbatim from the process-global fingerprint::Profile. Precedence:
++  // default < descriptor (the --fingerprint-screen-* switches are unwired).
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.h > 0) {
++    return profile.descriptor().screen.h;
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetRect(/*available=*/false).height();
+ }
+ 
+ int Screen::width() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.w > 0) {
++    return profile.descriptor().screen.w;
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetRect(/*available=*/false).width();
+ }
+ 
+ unsigned Screen::colorDepth() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.color_depth > 0) {
++    return base::saturated_cast<unsigned>(profile.descriptor().screen.color_depth);
++  }
++
+   // "If the user agent does not know the color depth or does not want to
+   // return it for privacy considerations, it should return 24."
+   //
+@@ -106,6 +125,11 @@ unsigned Screen::colorDepth() const {
+ }
+ 
+ unsigned Screen::pixelDepth() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.pixel_depth > 0) {
++    return base::saturated_cast<unsigned>(profile.descriptor().screen.pixel_depth);
++  }
++
+   return colorDepth();
+ }
+ 
+@@ -122,12 +146,22 @@ int Screen::availTop() const {
+ }
+ 
+ int Screen::availHeight() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.avail_h > 0) {
++    return profile.descriptor().screen.avail_h;
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetRect(/*available=*/true).height();
+ }
+ 
+ int Screen::availWidth() const {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.avail_w > 0) {
++    return profile.descriptor().screen.avail_w;
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetRect(/*available=*/true).width();

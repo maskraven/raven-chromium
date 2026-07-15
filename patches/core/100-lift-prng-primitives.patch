@@ -1,0 +1,246 @@
+diff --git a/third_party/abseil-cpp/absl.gni b/third_party/abseil-cpp/absl.gni
+index 5ec01f6d23c52..f9a5b3366842c 100644
+--- a/third_party/abseil-cpp/absl.gni
++++ b/third_party/abseil-cpp/absl.gni
+@@ -66,6 +66,10 @@ template("absl_source_set") {
+             # GTest.  It unconditionally #includes any.h if pretty-print support
+             # for absl types is enabled.
+             "//third_party/googletest/*",
++
++            # Raven: //third_party/lifted/farbling_prng.h lifts Brave's randen
++            # typedef and includes absl/random/random.h (see third_party/lifted).
++            "//third_party/lifted/*",
+           ]
+ 
+           if (!is_component_build) {
+diff --git a/third_party/lifted/BUILD.gn b/third_party/lifted/BUILD.gn
+new file mode 100644
+index 0000000000000..264cd33d697db
+--- /dev/null
++++ b/third_party/lifted/BUILD.gn
+@@ -0,0 +1,14 @@
++# third_party/lifted/BUILD.gn — Raven-Chromium lifted PRNG primitives.
++# Provenance ledger: third_party/lifted/README.md.
++
++source_set("lifted") {
++  public = [
++    "farbling_prng.h",
++    "siphash.h",
++  ]
++  sources = [ "siphash.cc" ]
++
++  # farbling_prng.h includes absl/random/random.h (public abseil target; the
++  # local DEPS file allowlists the otherwise repo-denied absl/random include).
++  public_deps = [ "//third_party/abseil-cpp/absl/random:random" ]
++}
+diff --git a/third_party/lifted/DEPS b/third_party/lifted/DEPS
+new file mode 100644
+index 0000000000000..9744b4bc16dde
+--- /dev/null
++++ b/third_party/lifted/DEPS
+@@ -0,0 +1,6 @@
++# third_party/lifted overrides the repo-global `-third_party/abseil-cpp/absl/random`
++# deny (DEPS line ~4209) so farbling_prng.h may include absl/random/random.h.
++# This is the same allowlisting Brave carries for its farbling_prng target.
++include_rules = [
++  "+third_party/abseil-cpp/absl/random",
++]
+diff --git a/third_party/lifted/README.md b/third_party/lifted/README.md
+new file mode 100644
+index 0000000000000..747814cbe16d5
+--- /dev/null
++++ b/third_party/lifted/README.md
+@@ -0,0 +1,28 @@
++# third_party/lifted — provenance ledger
++
++Files lifted (copied, with upstream license header preserved) into Raven-Chromium.
++Each row records upstream project, path, pinned commit, license, and where it enters
++our patch series. **Lifted files MUST keep their original license header verbatim.**
++
++| File | Upstream | Upstream path | Commit / version | License | Lifted in |
++|---|---|---|---|---|---|
++| `farbling_prng.h` | brave-core | `components/brave_shields/core/common/farbling_prng.h` | `d1ce6ee2` (v1.94.64) | MPL-2.0 | Plan 02 / `patches/core/100` |
++| `siphash.h`, `siphash.cc` | SipHash reference impl (Aumasson & Bernstein, 2012) | reference C implementation | — | public domain (CC0) | Plan 02 / `patches/core/100` |
++
++## Adaptations
++- **`farbling_prng.h`** — MPL-2.0 header preserved verbatim. Only the include guard
++  (`THIRD_PARTY_LIFTED_FARBLING_PRNG_H_`) and the wrapping namespace (`brave_shields`
++  → `fingerprint`) were changed. The `#include "third_party/abseil-cpp/absl/random/random.h"`
++  is unchanged from upstream — `random.h` transitively provides
++  `absl::random_internal::randen_engine`.
++- **`siphash.{h,cc}`** — public-domain reference SipHash-2-4 placed in namespace
++  `fingerprint`. Verified against the canonical SipHash-2-4 test vectors
++  (len 0/8/15 → 726fdb47dd0e0e31 / 93f5f5799a932462 / a129ca6149be45e5).
++  This is the **only** hash permitted in fingerprint derivation; BANNED there:
++  `absl::Hash`, `base::RandUint64`, `base::Time::Now`, `std::hash`.
++
++## Build wiring
++- `DEPS` allowlists `+third_party/abseil-cpp/absl/random` (the repo-global DEPS denies it).
++- `BUILD.gn` target `:lifted` (public headers + `siphash.cc`) has
++  `public_deps = [ "//third_party/abseil-cpp/absl/random:random" ]` (public abseil target;
++  no abseil visibility edit required — mirrors Brave).
+diff --git a/third_party/lifted/farbling_prng.h b/third_party/lifted/farbling_prng.h
+new file mode 100644
+index 0000000000000..761ae867a589f
+--- /dev/null
++++ b/third_party/lifted/farbling_prng.h
+@@ -0,0 +1,29 @@
++// Copyright (c) 2026 The Brave Authors. All rights reserved.
++// This Source Code Form is subject to the terms of the Mozilla Public
++// License, v. 2.0. If a copy of the MPL was not distributed with this file,
++// You can obtain one at https://mozilla.org/MPL/2.0/.
++//
++// Lifted into Raven-Chromium from brave-core @ d1ce6ee2 (v1.94.64), path
++// components/brave_shields/core/common/farbling_prng.h. The MPL-2.0 header
++// above is preserved verbatim per the provenance policy; only the include
++// guard and the wrapping namespace (brave_shields -> fingerprint) were
++// adapted. The include of absl/random/random.h is unchanged from upstream:
++// random.h transitively provides absl::random_internal::randen_engine.
++// See third_party/lifted/README.md.
++
++#ifndef THIRD_PARTY_LIFTED_FARBLING_PRNG_H_
++#define THIRD_PARTY_LIFTED_FARBLING_PRNG_H_
++
++#include "third_party/abseil-cpp/absl/random/random.h"
++
++namespace fingerprint {
++
++// Seeded, deterministic PRNG (AES-based RANDEN CSPRNG exposed as a std-style
++// engine). Constructed from a single uint64 seed; callers pull draws with
++// operator(). This is the terminal stage of Raven's derivation chain:
++//   surface_seed = SipHash24(key128, surface_tag);  FarblingPRNG prng(surface_seed);
++using FarblingPRNG = absl::random_internal::randen_engine<uint64_t>;
++
++}  // namespace fingerprint
++
++#endif  // THIRD_PARTY_LIFTED_FARBLING_PRNG_H_
+diff --git a/third_party/lifted/siphash.cc b/third_party/lifted/siphash.cc
+new file mode 100644
+index 0000000000000..e53eb88430baf
+--- /dev/null
++++ b/third_party/lifted/siphash.cc
+@@ -0,0 +1,87 @@
++// SipHash-2-4 — public-domain reference implementation (see siphash.h).
++
++#include "third_party/lifted/siphash.h"
++
++#include <cstring>
++
++namespace fingerprint {
++namespace {
++
++inline uint64_t RotL(uint64_t x, int b) {
++  return (x << b) | (x >> (64 - b));
++}
++
++// Little-endian 64-bit load. All Chromium target architectures are
++// little-endian; if a big-endian target is ever added, byte-swap here.
++inline uint64_t Load64LE(const uint8_t* p) {
++  uint64_t v;
++  std::memcpy(&v, p, sizeof(v));
++  return v;
++}
++
++#define SIPROUND()                              \
++  do {                                          \
++    v0 += v1;                                   \
++    v1 = RotL(v1, 13);                          \
++    v1 ^= v0;                                   \
++    v0 = RotL(v0, 32);                          \
++    v2 += v3;                                   \
++    v3 = RotL(v3, 16);                          \
++    v3 ^= v2;                                   \
++    v0 += v3;                                   \
++    v3 = RotL(v3, 21);                          \
++    v3 ^= v0;                                   \
++    v2 += v1;                                   \
++    v1 = RotL(v1, 17);                          \
++    v1 ^= v2;                                   \
++    v2 = RotL(v2, 32);                          \
++  } while (0)
++
++}  // namespace
++
++uint64_t SipHash24(const uint8_t key[16], const uint8_t* data, size_t len) {
++  const uint64_t k0 = Load64LE(key);
++  const uint64_t k1 = Load64LE(key + 8);
++
++  uint64_t v0 = 0x736f6d6570736575ULL ^ k0;
++  uint64_t v1 = 0x646f72616e646f6dULL ^ k1;
++  uint64_t v2 = 0x6c7967656e657261ULL ^ k0;
++  uint64_t v3 = 0x7465646279746573ULL ^ k1;
++
++  const uint8_t* const end = data + (len - (len % 8));
++  const int left = static_cast<int>(len & 7);
++  uint64_t b = static_cast<uint64_t>(len) << 56;
++
++  for (; data != end; data += 8) {
++    const uint64_t m = Load64LE(data);
++    v3 ^= m;
++    SIPROUND();
++    SIPROUND();
++    v0 ^= m;
++  }
++
++  for (int i = 0; i < left; ++i) {
++    b |= static_cast<uint64_t>(data[i]) << (8 * i);
++  }
++
++  v3 ^= b;
++  SIPROUND();
++  SIPROUND();
++  v0 ^= b;
++
++  v2 ^= 0xff;
++  SIPROUND();
++  SIPROUND();
++  SIPROUND();
++  SIPROUND();
++
++  return v0 ^ v1 ^ v2 ^ v3;
++}
++
++#undef SIPROUND
++
++uint64_t SipHash24Tag(const uint8_t key[16], const char* tag) {
++  return SipHash24(key, reinterpret_cast<const uint8_t*>(tag), std::strlen(tag));
++}
++
++}  // namespace fingerprint
+diff --git a/third_party/lifted/siphash.h b/third_party/lifted/siphash.h
+new file mode 100644
+index 0000000000000..6e7eb6ef9752f
+--- /dev/null
++++ b/third_party/lifted/siphash.h
+@@ -0,0 +1,31 @@
++// SipHash-2-4 keyed PRF — public-domain reference implementation.
++//
++// Reference: Jean-Philippe Aumasson and Daniel J. Bernstein, "SipHash: a fast
++// short-input PRF" (2012). The reference C implementation was released to the
++// public domain (CC0). Adapted into Raven-Chromium under namespace
++// `fingerprint`; see third_party/lifted/README.md.
++//
++// Raven uses SipHash-2-4 as the keyed derivation step feeding
++// fingerprint::FarblingPRNG:
++//   surface_seed = SipHash24(key128, surface_tag)
++// This is the ONLY hash permitted in fingerprint derivation. BANNED in the
++// derivation path: absl::Hash, base::RandUint64, base::Time::Now, std::hash.
++
++#ifndef THIRD_PARTY_LIFTED_SIPHASH_H_
++#define THIRD_PARTY_LIFTED_SIPHASH_H_
++
++#include <cstddef>
++#include <cstdint>
++
++namespace fingerprint {
++
++// Computes SipHash-2-4 of [data, data+len) under the 128-bit |key| (16 bytes,
++// interpreted little-endian as k0 || k1). Deterministic across platforms.
++uint64_t SipHash24(const uint8_t key[16], const uint8_t* data, size_t len);
++
++// Convenience overload: hash a NUL-terminated ASCII surface tag.
++uint64_t SipHash24Tag(const uint8_t key[16], const char* tag);
++
++}  // namespace fingerprint
++
++#endif  // THIRD_PARTY_LIFTED_SIPHASH_H_

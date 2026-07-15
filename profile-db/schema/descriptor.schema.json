@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raven.browser/schema/descriptor.schema.json",
+  "title": "Raven fingerprint descriptor (v1)",
+  "description": "Frozen v1 profile-descriptor contract (Plan 02 ratified design, §6 D1). JSON keys mirror the JS-observable names exactly. Identity axes (os, platform, gpu, screen, languages, locale, timezone, hardwareConcurrency, deviceMemory, chromeMajor) are read verbatim by the C++ Profile and the Raven-Browser writer; the seed drives only within-profile jitter and never an identity axis. schemaVersion is pinned to an accepted range by both this schema and the C++ parser; an unknown major is a hard fail. Post-v1 surfaces ADD fields under the optional 'extensions' block; frozen names are never renamed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "seed",
+    "os",
+    "platform",
+    "chromeMajor",
+    "hardwareConcurrency",
+    "deviceMemory",
+    "gpu",
+    "screen",
+    "languages",
+    "locale",
+    "timezone"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "title": "Descriptor schema version",
+      "description": "Contract major version. Pinned to 1 for v1; an unknown major is a hard fail in both validate.py and the C++ parser.",
+      "type": "integer",
+      "const": 1
+    },
+    "seed": {
+      "title": "Per-profile PRNG seed",
+      "description": "Fixed 64-bit seed that drives ONLY within-profile jitter (canvas LSB noise, audio fudge, integer offsets) via the SipHash+randen chain. Never an identity axis. Accepts a JSON number or a decimal string, because a u64 can exceed the JS safe-integer range.",
+      "anyOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+$" }
+      ]
+    },
+    "os": {
+      "title": "Host operating-system family",
+      "description": "Governs the platform string and the plausible GPU set. v1 personas are host-OS/GPU-matched (no cross-OS personas).",
+      "type": "string",
+      "enum": ["windows", "macos", "linux"]
+    },
+    "platform": {
+      "title": "navigator.platform",
+      "description": "Exact navigator.platform string. windows => 'Win32', macos => 'MacIntel' (even on Apple Silicon — Chrome never reports an 'arm' platform), linux => 'Linux x86_64'. Must agree with os.",
+      "type": "string",
+      "enum": ["Win32", "MacIntel", "Linux x86_64"]
+    },
+    "chromeMajor": {
+      "title": "Chrome milestone (major version)",
+      "description": "Feeds the UA string and Sec-CH-UA. Sane band: >= 140.",
+      "type": "integer",
+      "minimum": 140,
+      "maximum": 200
+    },
+    "hardwareConcurrency": {
+      "title": "navigator.hardwareConcurrency",
+      "description": "Logical CPU count reported to JS. Realistic, even, within [2, 256] (coherence-checked).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 256
+    },
+    "deviceMemory": {
+      "title": "navigator.deviceMemory (GiB)",
+      "description": "Approximate device RAM. Web-spec bucket set {0.25,0.5,1,2,4,8}; note Blink's ApproximatedDeviceMemory clamps navigator.deviceMemory to a maximum of 8, so realistic v1 personas use 4 or 8.",
+      "type": "number",
+      "enum": [0.25, 0.5, 1, 2, 4, 8]
+    },
+    "gpu": {
+      "title": "GPU identity (WebGL + WebGPU)",
+      "description": "Unmasked WebGL vendor/renderer plus WebGPU adapter info. Strings must be plausible for os (no Apple GPU off macOS, no Direct3D off Windows, no Mesa off Linux, no Metal off macOS).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vendor", "renderer", "architecture", "device"],
+      "properties": {
+        "vendor": {
+          "title": "WEBGL_debug_renderer_info UNMASKED_VENDOR_WEBGL",
+          "description": "e.g. 'Google Inc. (NVIDIA)'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "renderer": {
+          "title": "WEBGL_debug_renderer_info UNMASKED_RENDERER_WEBGL",
+          "description": "Full ANGLE renderer string, e.g. 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 ... Direct3D11 ..., D3D11)'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "architecture": {
+          "title": "WebGPU GPUAdapterInfo.architecture",
+          "description": "e.g. 'ampere', 'apple-gpu', 'gen-9'.",
+          "type": "string"
+        },
+        "device": {
+          "title": "WebGPU GPUAdapterInfo.device",
+          "description": "Adapter device string, e.g. 'NVIDIA GeForce RTX 3070'.",
+          "type": "string"
+        }
+      }
+    },
+    "screen": {
+      "title": "Screen geometry (window.screen)",
+      "description": "availW <= w and availH <= h; colorDepth == pixelDepth in {24,30}; dpr in a sane set (coherence-checked).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["w", "h", "dpr", "colorDepth", "pixelDepth", "availW", "availH"],
+      "properties": {
+        "w": { "title": "screen.width (logical px)", "type": "integer", "minimum": 320, "maximum": 16384 },
+        "h": { "title": "screen.height (logical px)", "type": "integer", "minimum": 240, "maximum": 16384 },
+        "dpr": { "title": "window.devicePixelRatio", "type": "number", "minimum": 0.5, "maximum": 4 },
+        "colorDepth": { "title": "screen.colorDepth", "type": "integer", "enum": [24, 30] },
+        "pixelDepth": { "title": "screen.pixelDepth", "type": "integer", "enum": [24, 30] },
+        "availW": { "title": "screen.availWidth", "type": "integer", "minimum": 320, "maximum": 16384 },
+        "availH": { "title": "screen.availHeight", "type": "integer", "minimum": 240, "maximum": 16384 }
+      }
+    },
+    "languages": {
+      "title": "navigator.languages",
+      "description": "Ordered BCP-47 tags. languages[0] is the single source for Accept-Language and must share locale's primary language subtag (co-variation; never re-derived from the seed).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$" }
+    },
+    "locale": {
+      "title": "Default locale",
+      "description": "BCP-47 language-REGION default (e.g. 'en-US'). Its region must be plausible for timezone.",
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}-[A-Za-z0-9]{2,8}$"
+    },
+    "timezone": {
+      "title": "IANA time-zone name",
+      "description": "IANA tz-database name (e.g. 'America/New_York'). Single source for geo/tz; must be plausible for locale's region.",
+      "type": "string",
+      "pattern": "^([A-Za-z_]+/[A-Za-z0-9_+/-]+|UTC)$"
+    },
+    "extensions": {
+      "title": "Forward-compatibility block (optional)",
+      "description": "Optional open object for post-v1 additive fields (Plan 03+). Ignored by the v1 parser; keeps top-level additionalProperties:false while allowing the contract to grow without renames.",
+      "type": "object"
+    }
+  }
+}

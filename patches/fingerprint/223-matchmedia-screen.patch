@@ -1,0 +1,94 @@
+diff --git a/third_party/blink/renderer/core/css/media_query_evaluator.cc b/third_party/blink/renderer/core/css/media_query_evaluator.cc
+index 890b3bbc2dc4b..19e7ff774b94a 100644
+--- a/third_party/blink/renderer/core/css/media_query_evaluator.cc
++++ b/third_party/blink/renderer/core/css/media_query_evaluator.cc
+@@ -68,6 +68,7 @@
+ #include "third_party/blink/renderer/core/media_type_names.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/core/style/computed_style.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/graphics/color_space_gamut.h"
+ #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+ #include "third_party/blink/renderer/platform/wtf/hash_map.h"
+@@ -308,6 +309,43 @@ bool CompareDoubleValue(double actual_value,
+   return false;
+ }
+ 
++// Raven: the DEVICE-dimension media features (device-width, device-height,
++// device-aspect-ratio, resolution / -webkit-device-pixel-ratio) must co-vary
++// with the spoofed window.screen surface (fingerprint patch 203). Otherwise a
++// detector (CreepJS) can catch matchMedia('(device-width: <screen.width>px)')
++// disagreeing with the spoofed screen.width. When the fingerprint Profile is
++// active and the descriptor carries a positive value, these helpers return the
++// spoofed screen dimension / device pixel ratio; otherwise they fall through to
++// the real host value. The VIEWPORT features (width, height, aspect-ratio)
++// reflect the real window geometry and are intentionally left untouched.
++static int EffectiveDeviceWidth(const MediaValues& media_values) {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.w > 0) {
++    return profile.descriptor().screen.w;
++  }
++  return media_values.DeviceWidth();
++}
++
++static int EffectiveDeviceHeight(const MediaValues& media_values) {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.h > 0) {
++    return profile.descriptor().screen.h;
++  }
++  return media_values.DeviceHeight();
++}
++
++// Returns the effective device pixel ratio in dppx. EvalResolution normalizes
++// every 'resolution' query (dppx/dpi/dpcm) to dppx before comparing, and dppx
++// is numerically identical to window.devicePixelRatio, so descriptor.screen.dpr
++// is returned verbatim with no unit conversion.
++static double EffectiveDevicePixelRatio(const MediaValues& media_values) {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && profile.descriptor().screen.dpr > 0) {
++    return profile.descriptor().screen.dpr;
++  }
++  return media_values.DevicePixelRatio();
++}
++
+ static bool CompareAspectRatioValue(const MediaQueryExpValue& value,
+                                     int width,
+                                     int height,
+@@ -500,8 +538,8 @@ static bool DeviceAspectRatioMediaFeatureEval(const MediaQueryExpValue& value,
+                                               MediaQueryOperator op,
+                                               const MediaValues& media_values) {
+   if (value.IsValid()) {
+-    return CompareAspectRatioValue(value, media_values.DeviceWidth(),
+-                                   media_values.DeviceHeight(), op,
++    return CompareAspectRatioValue(value, EffectiveDeviceWidth(media_values),
++                                   EffectiveDeviceHeight(media_values), op,
+                                    media_values);
+   }
+ 
+@@ -554,7 +592,7 @@ static bool EvalResolution(const MediaQueryExpValue& value,
+   // media type of the query will either be "print" or "all".
+   if (EqualIgnoringAsciiCase(media_values.MediaType(),
+                              media_type_names::kScreen)) {
+-    actual_resolution = ClampTo<float>(media_values.DevicePixelRatio());
++    actual_resolution = ClampTo<float>(EffectiveDevicePixelRatio(media_values));
+   } else if (EqualIgnoringAsciiCase(media_values.MediaType(),
+                                     media_type_names::kPrint)) {
+     // The resolution of images while printing should not depend on the DPI
+@@ -651,7 +689,7 @@ static bool DeviceHeightMediaFeatureEval(const MediaQueryExpValue& value,
+                                          const MediaValues& media_values) {
+   if (value.IsValid()) {
+     return ComputeLengthAndCompare(value, op, media_values,
+-                                   media_values.DeviceHeight());
++                                   EffectiveDeviceHeight(media_values));
+   }
+ 
+   // ({,min-,max-}device-height)
+@@ -664,7 +702,7 @@ static bool DeviceWidthMediaFeatureEval(const MediaQueryExpValue& value,
+                                         const MediaValues& media_values) {
+   if (value.IsValid()) {
+     return ComputeLengthAndCompare(value, op, media_values,
+-                                   media_values.DeviceWidth());
++                                   EffectiveDeviceWidth(media_values));
+   }
+ 
+   // ({,min-,max-}device-width)

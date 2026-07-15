@@ -1,0 +1,33 @@
+diff --git a/third_party/blink/renderer/modules/webusb/usb.cc b/third_party/blink/renderer/modules/webusb/usb.cc
+index 4128fc6a5bb29..80a49f7c01654 100644
+--- a/third_party/blink/renderer/modules/webusb/usb.cc
++++ b/third_party/blink/renderer/modules/webusb/usb.cc
+@@ -29,6 +29,7 @@
+ #include "third_party/blink/renderer/modules/webusb/usb_connection_event.h"
+ #include "third_party/blink/renderer/modules/webusb/usb_device.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/wtf/functional.h"
+ 
+@@ -197,6 +198,20 @@ ScriptPromise<IDLSequence<USBDevice>> USB::getDevices(
+     return ScriptPromise<IDLSequence<USBDevice>>();
+   }
+ 
++  // Raven descriptor (Plan 03): navigator.usb.getDevices() exposes the paired-
++  // device list, a fingerprint vector. When a persona is active, present the
++  // common low-entropy state (no paired devices) rather than enumerating host
++  // devices. The permission/secure-context checks above remain intact.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    auto* empty_resolver =
++        MakeGarbageCollected<ScriptPromiseResolver<IDLSequence<USBDevice>>>(
++            script_state, exception_state.GetContext());
++    auto promise = empty_resolver->Promise();
++    empty_resolver->Resolve(HeapVector<Member<USBDevice>>(0));
++    return promise;
++  }
++
+   EnsureServiceConnection();
+   auto* resolver =
+       MakeGarbageCollected<ScriptPromiseResolver<IDLSequence<USBDevice>>>(

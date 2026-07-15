@@ -1,0 +1,126 @@
+diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.cc b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+index 891a81543becd..734c7d9d41458 100644
+--- a/third_party/blink/renderer/modules/speech/speech_synthesis.cc
++++ b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+@@ -43,12 +43,81 @@
+ #include "third_party/blink/renderer/modules/speech/speech_synthesis_error_event.h"
+ #include "third_party/blink/renderer/modules/speech/speech_synthesis_event.h"
+ #include "third_party/blink/renderer/modules/speech/speech_synthesis_voice.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+ 
+ namespace blink {
+ 
+ const char SpeechSynthesis::kSupplementName[] = "SpeechSynthesis";
+ 
++namespace {
++
++// Raven: append one canned voice to |voice_list| as a GC-managed
++// SpeechSynthesisVoice. voiceURI mirrors the name (as real engines do for these
++// voices). All arguments are ASCII literals, so String's Latin-1 const char*
++// constructor is exact.
++void AppendPersonaVoice(HeapVector<Member<SpeechSynthesisVoice>>& voice_list,
++                        const char* name,
++                        const char* lang,
++                        bool is_local_service,
++                        bool is_default) {
++  auto voice = mojom::blink::SpeechSynthesisVoice::New();
++  voice->voice_uri = String(name);
++  voice->name = String(name);
++  voice->lang = String(lang);
++  voice->is_local_service = is_local_service;
++  voice->is_default = is_default;
++  voice_list.push_back(
++      MakeGarbageCollected<SpeechSynthesisVoice>(std::move(voice)));
++}
++
++// Builds a deterministic, OS-appropriate TTS voice list for the active persona.
++// Exactly one entry is default=true. Real Chrome exposes voices on every desktop
++// OS, so an empty list (the host's neutral state) is itself a tell; this canned
++// list restores coherence without leaking the host's real inventory. Data
++// mirrors the stock voices shipped by each platform plus Google's network voices
++// (present on every OS, localService=false). The list is kept small and stable.
++void BuildPersonaVoiceList(HeapVector<Member<SpeechSynthesisVoice>>& voice_list,
++                           const std::string& os) {
++  const bool has_local_default = (os == "windows" || os == "macos");
++
++  // OS-native local voices first (localService=true).
++  if (os == "windows") {
++    AppendPersonaVoice(voice_list, "Microsoft David - English (United States)",
++                       "en-US", /*is_local_service=*/true, /*is_default=*/true);
++    AppendPersonaVoice(voice_list, "Microsoft Zira - English (United States)",
++                       "en-US", /*is_local_service=*/true,
++                       /*is_default=*/false);
++    AppendPersonaVoice(voice_list, "Microsoft Mark - English (United States)",
++                       "en-US", /*is_local_service=*/true,
++                       /*is_default=*/false);
++  } else if (os == "macos") {
++    AppendPersonaVoice(voice_list, "Samantha", "en-US",
++                       /*is_local_service=*/true, /*is_default=*/true);
++    AppendPersonaVoice(voice_list, "Alex", "en-US", /*is_local_service=*/true,
++                       /*is_default=*/false);
++    AppendPersonaVoice(voice_list, "Daniel", "en-GB", /*is_local_service=*/true,
++                       /*is_default=*/false);
++    AppendPersonaVoice(voice_list, "Karen", "en-AU", /*is_local_service=*/true,
++                       /*is_default=*/false);
++  }
++  // else: linux (and any unknown os) exposes no local voices.
++
++  // Google network voices, present on every OS (localService=false). When no
++  // local default was set (linux/unknown), the first Google voice is default so
++  // that exactly one voice remains the default.
++  AppendPersonaVoice(voice_list, "Google US English", "en-US",
++                     /*is_local_service=*/false,
++                     /*is_default=*/!has_local_default);
++  AppendPersonaVoice(voice_list, "Google UK English Female", "en-GB",
++                     /*is_local_service=*/false, /*is_default=*/false);
++  AppendPersonaVoice(voice_list, "Google UK English Male", "en-GB",
++                     /*is_local_service=*/false, /*is_default=*/false);
++  AppendPersonaVoice(voice_list, "Google Deutsch", "de-DE",
++                     /*is_local_service=*/false, /*is_default=*/false);
++}
++
++}  // namespace
+ 
+ SpeechSynthesis* SpeechSynthesis::speechSynthesis(LocalDOMWindow& window) {
+   SpeechSynthesis* synthesis =
+@@ -84,6 +153,17 @@ SpeechSynthesis::SpeechSynthesis(LocalDOMWindow& window)
+ 
+ void SpeechSynthesis::OnSetVoiceList(
+     Vector<mojom::blink::SpeechSynthesisVoicePtr> mojom_voices) {
++  // Raven: when a persona is active, never ingest the host's real voice
++  // inventory. Populate the deterministic canned list instead (once), but still
++  // notify listeners so pages that wait for `voiceschanged` before calling
++  // getVoices() proceed.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    if (voice_list_.empty())
++      BuildPersonaVoiceList(voice_list_, profile.descriptor().os);
++    VoicesDidChange();
++    return;
++  }
+   voice_list_.clear();
+   for (auto& mojom_voice : mojom_voices) {
+     voice_list_.push_back(
+@@ -93,6 +173,21 @@ void SpeechSynthesis::OnSetVoiceList(
+ }
+ 
+ const HeapVector<Member<SpeechSynthesisVoice>>& SpeechSynthesis::getVoices() {
++  // Raven descriptor (Plan 03): the installed TTS voice list is strongly
++  // OS-derived and one of the highest-entropy fingerprint vectors on the
++  // platform. Rather than leak the host's real voices, expose a DETERMINISTIC,
++  // OS-appropriate canned list keyed on descriptor().os. Real Chrome shows
++  // voices on every desktop OS, so an empty list would itself be a coherence
++  // tell. The list is built once and cached in voice_list_ (stable across
++  // observations); the host's real voices arriving via OnSetVoiceList are
++  // ignored while active, so this reference stays canned and valid.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    if (voice_list_.empty())
++      BuildPersonaVoiceList(voice_list_, profile.descriptor().os);
++    return voice_list_;
++  }
++
+   // Kick off initialization here to ensure voice list gets populated.
+   std::ignore = TryEnsureMojomSynthesis();
+   return voice_list_;

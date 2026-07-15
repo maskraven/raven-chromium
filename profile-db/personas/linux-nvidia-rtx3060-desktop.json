@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "seed": 9012345678901234567,
+  "os": "linux",
+  "platform": "Linux x86_64",
+  "chromeMajor": 150,
+  "hardwareConcurrency": 12,
+  "deviceMemory": 8,
+  "gpu": {
+    "vendor": "Google Inc. (NVIDIA Corporation)",
+    "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.6.0 NVIDIA 535.183.01)",
+    "architecture": "ampere",
+    "device": "NVIDIA GeForce RTX 3060/PCIe/SSE2"
+  },
+  "screen": {
+    "w": 2560,
+    "h": 1440,
+    "dpr": 1,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "availW": 2560,
+    "availH": 1413
+  },
+  "languages": [
+    "en-US",
+    "en"
+  ],
+  "locale": "en-US",
+  "timezone": "America/Denver"
+}

@@ -1,0 +1,28 @@
+# build/args/release.gni — Plan 05 / T5.1 release overrides.
+#
+# Append AFTER build/args/common.gni + build/args/<platform>.gn. GN resolves the
+# LAST assignment of a variable, so these override the dev toggles in common.gni.
+# build/gen-and-build.sh honors RELEASE=1 to append this file automatically.
+#
+# Release builds enable LTO and are LONG (hours) — run on a dedicated release
+# runner (Plan 05 T5.5), one per shipped OS/GPU class (persona↔host match).
+
+# --- promote dev -> release ---
+is_official_build = true       # release: full LTO + hardening (no PGO — see below)
+is_debug = false
+is_component_build = false     # single-binary release
+dcheck_always_on = false       # DCHECKs off in release
+symbol_level = 1               # keep minimal symbols for crash symbolization
+blink_symbol_level = 1
+use_remoteexec = false
+
+# ungoogled's flags.gn already sets chrome_pgo_phase = 0, so is_official_build
+# builds WITHOUT PGO profiles (which we do not ship). Keep it pinned here so an
+# official build does not try to fetch/require PGO data.
+chrome_pgo_phase = 0
+
+# Reproducibility: the pinned toolchain (build/PINS) + the ungoogled flag base
+# already give deterministic output; keep exclude_unwind_tables (from flags.gn).
+# Branding: NO product-name changes here — the runtime must present as stock
+# Chrome (Plan 05 T5.2). Installer/OS-level "Raven Chromium" naming lives in the
+# packaging step (build/package-linux.sh), never in gn args that reach the UA.

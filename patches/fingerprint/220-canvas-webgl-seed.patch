@@ -1,0 +1,378 @@
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index a78d0a055b4a7..a14fb5cf7daa5 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -110,6 +110,7 @@
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/core/resize_observer/resize_observer_utilities.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/fonts/plain_text_painter.h"
+ #include "third_party/blink/renderer/platform/graphics/canvas_resource.h"
+ #include "third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.h"
+@@ -1315,10 +1316,18 @@ String HTMLCanvasElement::ToDataURLInternal(
+   if (image_bitmap) {
+ 
+     // 添加指纹保护：在创建 ImageDataBuffer 之前修改像素数据副本
++    // Raven: fire when a fingerprint profile is active OR the legacy
++    // --fingerprint switch is present; the --disable-spoofing "canvas"
++    // sub-token still suppresses it. ShuffleSubchannelColorData picks the
++    // active vs. legacy noise algorithm internally.
+     const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-    if (command_line->HasSwitch(switches::kFingerprint) &&
+-        (!command_line->HasSwitch(switches::kDisableSpoofing) ||
+-         command_line->GetSwitchValueASCII(switches::kDisableSpoofing).find("canvas") == std::string::npos)) {
++    const bool spoof_enabled = fingerprint::Profile::Get().active() ||
++                               command_line->HasSwitch(switches::kFingerprint);
++    const bool canvas_not_disabled =
++        !command_line->HasSwitch(switches::kDisableSpoofing) ||
++        command_line->GetSwitchValueASCII(switches::kDisableSpoofing)
++                .find("canvas") == std::string::npos;
++    if (spoof_enabled && canvas_not_disabled) {
+ 
+       // 获取图像的像素数据进行修改（创建完全独立的副本）
+       SkImageInfo image_info = SkImageInfo::Make(
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index 5d504593d05ce..042e44a631ba2 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -69,6 +69,7 @@
+ #include "third_party/blink/renderer/modules/webgpu/gpu_device.h"
+ #include "third_party/blink/renderer/modules/webgpu/gpu_texture.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_code.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/fonts/font.h"
+ #include "third_party/blink/renderer/platform/fonts/font_selection_types.h"
+ #include "third_party/blink/renderer/platform/fonts/font_selector.h"
+@@ -517,10 +518,18 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+       DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
+     }
+ 
++    // Raven: fire the canvas noise when a fingerprint profile is active OR the
++    // legacy --fingerprint switch is present; the --disable-spoofing "canvas"
++    // sub-token still suppresses it. ShuffleSubchannelColorData itself picks the
++    // active vs. legacy noise algorithm internally.
+     const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-    if (read_pixels_successful && command_line->HasSwitch(switches::kFingerprint) &&
+-        (!command_line->HasSwitch(switches::kDisableSpoofing) ||
+-         command_line->GetSwitchValueASCII(switches::kDisableSpoofing).find("canvas") == std::string::npos)) {
++    const bool spoof_enabled = fingerprint::Profile::Get().active() ||
++                               command_line->HasSwitch(switches::kFingerprint);
++    const bool canvas_not_disabled =
++        !command_line->HasSwitch(switches::kDisableSpoofing) ||
++        command_line->GetSwitchValueASCII(switches::kDisableSpoofing)
++                .find("canvas") == std::string::npos;
++    if (read_pixels_successful && spoof_enabled && canvas_not_disabled) {
+       StaticBitmapImage::ShuffleSubchannelColorData(image_data_pixmap.addr(), image_data_pixmap.info(), sx, sy);
+     }
+   }
+@@ -1166,26 +1175,46 @@ TextMetrics* BaseRenderingContext2D::measureText(const String& text) {
+       font, direction, state.GetTextBaseline(), state.GetTextAlign(), text,
+       host->GetPlainTextPainter());
+ 
+-  // Scale text metrics if enabled
++  // Scale text metrics if enabled. Raven: the noise factor comes from exactly
++  // one source. When a fingerprint profile is active it is a single draw from
++  // the persona's canvas stream (SurfacePrng, Surface::kCanvas) mapped to
++  // [-0.5, 0.5) and scaled by the same 0.00001 factor as before; the legacy
++  // --fingerprint std::hash path is an else-branch so vanilla behavior is
++  // unchanged. std::hash never runs on the active path. The --disable-spoofing
++  // "canvas" sub-token still suppresses noise in both cases.
+   const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kFingerprint) &&
+-      (!command_line->HasSwitch(switches::kDisableSpoofing) ||
+-       command_line->GetSwitchValueASCII(switches::kDisableSpoofing).find("canvas") == std::string::npos)) {
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  const bool canvas_not_disabled =
++      !command_line->HasSwitch(switches::kDisableSpoofing) ||
++      command_line->GetSwitchValueASCII(switches::kDisableSpoofing)
++              .find("canvas") == std::string::npos;
++  std::optional<double> noise_x;
++  if (profile.active() && canvas_not_disabled) {
++    fingerprint::FarblingPRNG prng =
++        fingerprint::SurfacePrng(profile.seed(), fingerprint::Surface::kCanvas);
++    const uint64_t draw = prng();
++    // Same [0, 1) unit-double conversion used across Raven surfaces.
++    const double unit = (draw >> 11) * (1.0 / 9007199254740992.0);
++    noise_x = (unit - 0.5) * 0.00001;
++  } else if (command_line->HasSwitch(switches::kFingerprint) &&
++             canvas_not_disabled) {
+     std::string seed_str = command_line->GetSwitchValueASCII(switches::kFingerprint);
+     std::string combined_rects_x = seed_str + "clientrects_noise_x";
+     uint32_t hash_val_x = std::hash<std::string>{}(combined_rects_x);
+      // 映射到[-0.5, 0.5]范围
+     double norm_x = (hash_val_x & 0xFFFFFFFF) / 4294967295.0 - 0.5;
+     // 使用 0.00001 作为因子 (相当于原来的 1/100000.0)
+-    double noise_x = norm_x * 0.00001;
++    noise_x = norm_x * 0.00001;
++  }
++  if (noise_x.has_value()) {
+     if (HostAsOffscreenCanvas()) {
+       if (auto* window = DynamicTo<LocalDOMWindow>(GetTopExecutionContext())) {
+         if (window->GetFrame() && window->GetFrame()->GetDocument() && text.length() > 0) {
+-          text_metrics->Shuffle(noise_x);
++          text_metrics->Shuffle(*noise_x);
+         }
+       }
+     } else if (canvas && text.length() > 0) {
+-      text_metrics->Shuffle(noise_x);
++      text_metrics->Shuffle(*noise_x);
+     }
+   }
+   return text_metrics;
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index d5b8792825079..58d40a13419fc 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -141,6 +141,7 @@
+ #include "third_party/blink/renderer/modules/xr/xr_system.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/graphics/accelerated_static_bitmap_image.h"
+ #include "third_party/blink/renderer/platform/graphics/canvas_resource.h"
+ #include "third_party/blink/renderer/platform/graphics/canvas_resource_provider.h"
+@@ -5357,10 +5358,18 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
+ 
+     // 添加指纹保护：修改已读取的像素数据
++    // Raven: fire when a fingerprint profile is active OR the legacy
++    // --fingerprint switch is present; the --disable-spoofing "canvas"
++    // sub-token still suppresses it. ShuffleSubchannelColorData picks the
++    // active vs. legacy noise algorithm internally.
+     const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-    if (command_line->HasSwitch(switches::kFingerprint) &&
+-        (!command_line->HasSwitch(switches::kDisableSpoofing) ||
+-         command_line->GetSwitchValueASCII(switches::kDisableSpoofing).find("canvas") == std::string::npos)) {
++    const bool spoof_enabled = fingerprint::Profile::Get().active() ||
++                               command_line->HasSwitch(switches::kFingerprint);
++    const bool canvas_not_disabled =
++        !command_line->HasSwitch(switches::kDisableSpoofing) ||
++        command_line->GetSwitchValueASCII(switches::kDisableSpoofing)
++                .find("canvas") == std::string::npos;
++    if (spoof_enabled && canvas_not_disabled) {
+       // 构建 SkImageInfo 来描述像素格式
+       SkColorType color_type;
+       SkAlphaType alpha_type = kUnpremul_SkAlphaType;
+diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+index 4953725b44219..c69c74e393fdd 100644
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+@@ -36,6 +36,7 @@
+ #include "base/compiler_specific.h"
+ #include "base/memory/ptr_util.h"
+ #include "components/ungoogled/ungoogled_switches.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+ #include "third_party/blink/renderer/platform/image-encoders/image_encoder_utils.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+@@ -134,10 +135,18 @@ base::span<const uint8_t> ImageDataBuffer::PixelData() const {
+ bool ImageDataBuffer::EncodeImage(const ImageEncodingMimeType mime_type,
+                                   const double& quality,
+                                   Vector<unsigned char>* encoded_image) const {
++  // Raven: fire when a fingerprint profile is active OR the legacy
++  // --fingerprint switch is present; the --disable-spoofing "canvas" sub-token
++  // still suppresses it. ShuffleSubchannelColorData picks the active vs. legacy
++  // noise algorithm internally.
+   const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kFingerprint) &&
+-      (!command_line->HasSwitch(switches::kDisableSpoofing) ||
+-       command_line->GetSwitchValueASCII(switches::kDisableSpoofing).find("canvas") == std::string::npos)) {
++  const bool spoof_enabled = fingerprint::Profile::Get().active() ||
++                             command_line->HasSwitch(switches::kFingerprint);
++  const bool canvas_not_disabled =
++      !command_line->HasSwitch(switches::kDisableSpoofing) ||
++      command_line->GetSwitchValueASCII(switches::kDisableSpoofing)
++              .find("canvas") == std::string::npos;
++  if (spoof_enabled && canvas_not_disabled) {
+     // shuffle subchannel color data within the pixmap
+     StaticBitmapImage::ShuffleSubchannelColorData(pixmap_.writable_addr(), pixmap_.info(), 0, 0);
+   }
+diff --git a/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc b/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc
+index e8df8256c7e48..223d92c2d5fbe 100644
+--- a/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc
++++ b/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc
+@@ -4,14 +4,15 @@
+ 
+ #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+ 
++#include <optional>
+ #include <unordered_set>
+ #include <vector>
+ #include "base/command_line.h"
+-#include "base/rand_util.h"
+ #include "base/logging.h"
+ #include "base/numerics/checked_math.h"
+ #include "components/ungoogled/ungoogled_switches.h"
+ #include "gpu/command_buffer/client/gles2_interface.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/graphics/accelerated_static_bitmap_image.h"
+ #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
+ #include "third_party/blink/renderer/platform/graphics/image_observer.h"
+@@ -136,14 +137,51 @@ void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkIma
+     return;
+   }
+ 
+-  std::string seed_str = "0";
+-  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kFingerprint) &&
+-      (!command_line->HasSwitch(switches::kDisableSpoofing) ||
+-       command_line->GetSwitchValueASCII(switches::kDisableSpoofing).find("canvas") == std::string::npos)) {
++  // Raven: pick exactly one noise source. When a fingerprint profile is active
++  // the per-pixel LSB flips are drawn from a deterministic, persona- and
++  // content-coupled CanvasPrng (seeded from the profile seed AND the original
++  // pixel bytes). When inactive, fall back to the legacy --fingerprint
++  // std::hash path so vanilla behavior is unchanged. std::hash never runs on
++  // the active path.
++  const bool profile_active = fingerprint::Profile::Get().active();
++  std::optional<fingerprint::FarblingPRNG> canvas_prng;
++  std::string seed_str;
++  if (profile_active) {
++    canvas_prng.emplace(fingerprint::CanvasPrng(
++        fingerprint::Profile::Get().seed(),
++        static_cast<const uint8_t*>(addr), info.computeMinByteSize()));
++  } else {
++    seed_str = "0";
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (command_line->HasSwitch(switches::kFingerprint) &&
++        (!command_line->HasSwitch(switches::kDisableSpoofing) ||
++         command_line->GetSwitchValueASCII(switches::kDisableSpoofing)
++                 .find("canvas") == std::string::npos)) {
+       seed_str = command_line->GetSwitchValueASCII(switches::kFingerprint);
++    }
+   }
+ 
++  // Fills the three LSB-flip bits for one selected pixel. On the active path a
++  // single 64-bit PRNG draw supplies all three bits; draws advance only for
++  // pixels we actually modify, so the sequence is deterministic given content.
++  // On the legacy path the bits come from the original std::hash pixel keys.
++  auto next_lsb_bits = [&](int x, int y, uint8_t& sr, uint8_t& sg,
++                           uint8_t& sb) {
++    if (profile_active) {
++      const uint64_t draw = (*canvas_prng)();
++      sr = static_cast<uint8_t>(draw & 1);
++      sg = static_cast<uint8_t>((draw >> 1) & 1);
++      sb = static_cast<uint8_t>((draw >> 2) & 1);
++    } else {
++      const std::string pixel_key_base =
++          seed_str + "_x" + std::to_string(x) + "_y" + std::to_string(y);
++      sr = std::hash<std::string>{}(pixel_key_base + "_r") & 1;
++      sg = std::hash<std::string>{}(pixel_key_base + "_g") & 1;
++      sb = std::hash<std::string>{}(pixel_key_base + "_b") & 1;
++    }
++  };
++
+   auto colorType = info.colorType();
+   auto fRowBytes = info.minRowBytes(); // stride
+ 
+@@ -189,15 +227,9 @@ void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkIma
+           }
+ 
+           if (isEdge && isValidColor) {
+-            // 直接处理这个像素
+-            std::string pixel_key_base = seed_str + "_x" + std::to_string(x) + "_y" + std::to_string(y);
+-            std::string pixel_key_r = pixel_key_base + "_r";
+-            std::string pixel_key_g = pixel_key_base + "_g";
+-            std::string pixel_key_b = pixel_key_base + "_b";
+-
+-            uint8_t shuffleR = std::hash<std::string>{}(pixel_key_r) & 1;
+-            uint8_t shuffleG = std::hash<std::string>{}(pixel_key_g) & 1;
+-            uint8_t shuffleB = std::hash<std::string>{}(pixel_key_b) & 1;
++            // Raven: LSB-flip bits from the single active noise source.
++            uint8_t shuffleR = 0, shuffleG = 0, shuffleB = 0;
++            next_lsb_bits(x, y, shuffleR, shuffleG, shuffleB);
+ 
+             auto a = SkGetPackedA32(*current);
+             r = (r & ~0x1) | shuffleR;
+@@ -232,15 +264,9 @@ void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkIma
+           }
+ 
+           if (isEdge && isValidColor) {
+-            // 直接处理这个像素
+-            std::string pixel_key_base = seed_str + "_x" + std::to_string(x) + "_y" + std::to_string(y);
+-            std::string pixel_key_r = pixel_key_base + "_r";
+-            std::string pixel_key_g = pixel_key_base + "_g";
+-            std::string pixel_key_b = pixel_key_base + "_b";
+-
+-            uint8_t shuffleR = std::hash<std::string>{}(pixel_key_r) & 1;
+-            uint8_t shuffleG = std::hash<std::string>{}(pixel_key_g) & 1;
+-            uint8_t shuffleB = std::hash<std::string>{}(pixel_key_b) & 1;
++            // Raven: LSB-flip bits from the single active noise source.
++            uint8_t shuffleR = 0, shuffleG = 0, shuffleB = 0;
++            next_lsb_bits(x, y, shuffleR, shuffleG, shuffleB);
+ 
+             auto a = SkGetPackedA32(*current);
+             r = (r & ~0x1) | shuffleR;
+@@ -268,10 +294,10 @@ void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkIma
+           }
+ 
+           if (isEdge && isValidColor) {
+-            // 直接处理这个像素
+-            std::string pixel_key_base = seed_str + "_x" + std::to_string(x) + "_y" + std::to_string(y);
+-            std::string pixel_key_b = pixel_key_base + "_b";
+-            uint8_t shuffleB = std::hash<std::string>{}(pixel_key_b) & 1;
++            // Raven: LSB-flip bits from the single active noise source (gray
++            // uses only the blue-channel bit).
++            [[maybe_unused]] uint8_t shuffleR = 0, shuffleG = 0, shuffleB = 0;
++            next_lsb_bits(x, y, shuffleR, shuffleG, shuffleB);
+             *current = (*current & ~0x1) | shuffleB;
+             modified_pixels++;
+             processed_rows.insert(y);
+@@ -296,15 +322,9 @@ void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkIma
+           }
+ 
+           if (isEdge && isValidColor) {
+-            // 直接处理这个像素
+-            std::string pixel_key_base = seed_str + "_x" + std::to_string(x) + "_y" + std::to_string(y);
+-            std::string pixel_key_r = pixel_key_base + "_r";
+-            std::string pixel_key_g = pixel_key_base + "_g";
+-            std::string pixel_key_b = pixel_key_base + "_b";
+-
+-            uint8_t shuffleR = std::hash<std::string>{}(pixel_key_r) & 1;
+-            uint8_t shuffleG = std::hash<std::string>{}(pixel_key_g) & 1;
+-            uint8_t shuffleB = std::hash<std::string>{}(pixel_key_b) & 1;
++            // Raven: LSB-flip bits from the single active noise source.
++            uint8_t shuffleR = 0, shuffleG = 0, shuffleB = 0;
++            next_lsb_bits(x, y, shuffleR, shuffleG, shuffleB);
+ 
+             r = (r & ~0x1) | (shuffleR & 0x1);
+             g = (g & ~0x1) | (shuffleG & 0x1);
+@@ -338,15 +358,9 @@ void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkIma
+           }
+ 
+           if (isEdge && isValidColor) {
+-            // 直接处理这个像素
+-            std::string pixel_key_base = seed_str + "_x" + std::to_string(x) + "_y" + std::to_string(y);
+-            std::string pixel_key_r = pixel_key_base + "_r";
+-            std::string pixel_key_g = pixel_key_base + "_g";
+-            std::string pixel_key_b = pixel_key_base + "_b";
+-
+-            uint8_t shuffleR = std::hash<std::string>{}(pixel_key_r) & 1;
+-            uint8_t shuffleG = std::hash<std::string>{}(pixel_key_g) & 1;
+-            uint8_t shuffleB = std::hash<std::string>{}(pixel_key_b) & 1;
++            // Raven: LSB-flip bits from the single active noise source.
++            uint8_t shuffleR = 0, shuffleG = 0, shuffleB = 0;
++            next_lsb_bits(x, y, shuffleR, shuffleG, shuffleB);
+ 
+             auto a = SkGetPackedA4444(*current);
+             r = (r & ~0x1) | (shuffleR & 0x1);
+@@ -382,15 +396,9 @@ void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkIma
+           }
+ 
+           if (isEdge && isValidColor) {
+-            // 直接处理这个像素
+-            std::string pixel_key_base = seed_str + "_x" + std::to_string(x) + "_y" + std::to_string(y);
+-            std::string pixel_key_r = pixel_key_base + "_r";
+-            std::string pixel_key_g = pixel_key_base + "_g";
+-            std::string pixel_key_b = pixel_key_base + "_b";
+-
+-            uint8_t shuffleR = std::hash<std::string>{}(pixel_key_r) & 1;
+-            uint8_t shuffleG = std::hash<std::string>{}(pixel_key_g) & 1;
+-            uint8_t shuffleB = std::hash<std::string>{}(pixel_key_b) & 1;
++            // Raven: LSB-flip bits from the single active noise source.
++            uint8_t shuffleR = 0, shuffleG = 0, shuffleB = 0;
++            next_lsb_bits(x, y, shuffleR, shuffleG, shuffleB);
+ 
+             auto a = SkColorGetA(*current);
+             r = (r & ~0x1) | shuffleR;

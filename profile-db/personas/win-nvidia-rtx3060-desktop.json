@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "seed": 11111111111111111111,
+  "os": "windows",
+  "platform": "Win32",
+  "chromeMajor": 150,
+  "hardwareConcurrency": 12,
+  "deviceMemory": 8,
+  "gpu": {
+    "vendor": "Google Inc. (NVIDIA)",
+    "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "architecture": "ampere",
+    "device": "NVIDIA GeForce RTX 3060"
+  },
+  "screen": {
+    "w": 1920,
+    "h": 1080,
+    "dpr": 1,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "availW": 1920,
+    "availH": 1032
+  },
+  "languages": [
+    "en-US",
+    "en"
+  ],
+  "locale": "en-US",
+  "timezone": "America/New_York"
+}

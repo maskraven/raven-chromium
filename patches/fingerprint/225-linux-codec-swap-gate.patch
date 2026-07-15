@@ -1,0 +1,89 @@
+diff --git a/media/BUILD.gn b/media/BUILD.gn
+index 7c7d53c5ba1db..b2a6f92c94359 100644
+--- a/media/BUILD.gn
++++ b/media/BUILD.gn
+@@ -84,7 +84,7 @@ buildflag_header("media_buildflags") {
+ 
+ if (proprietary_codecs && media_use_ffmpeg) {
+   assert(
+-      ffmpeg_branding != "Chromium",
++      true,  # Raven: proprietary_codecs + Chromium ffmpeg intentional (swappable-libffmpeg route, runtime-probe-gated)
+       "proprietary codecs and ffmpeg_branding set to Chromium are incompatible")
+ }
+ 
+diff --git a/media/base/supported_types.cc b/media/base/supported_types.cc
+index c4d25f792f306..65f56a23cc0f3 100644
+--- a/media/base/supported_types.cc
++++ b/media/base/supported_types.cc
+@@ -37,6 +37,17 @@
+ #include "base/win/windows_version.h"
+ #endif
+ 
++#if BUILDFLAG(ENABLE_FFMPEG)
++// Raven ships a swappable, Chromium-branded libffmpeg.so that omits patented
++// decoders. Proprietary-codec support must therefore be advertised only when
++// the currently loaded library actually provides the decoder, which we detect
++// at runtime via avcodec_find_decoder(). //media/base already depends on
++// //third_party/ffmpeg when media_use_ffmpeg is set, so no nogncheck is needed.
++extern "C" {
++#include <libavcodec/avcodec.h>
++}  // extern "C"
++#endif  // BUILDFLAG(ENABLE_FFMPEG)
++
+ namespace media {
+ 
+ namespace {
+@@ -305,6 +316,32 @@ bool IsDecoderAACSupported(const AudioType& type) {
+ #endif
+ }
+ 
++// Returns true iff the currently loaded (potentially externally-swapped)
++// libffmpeg.so provides an H.264 decoder. When built without FFmpeg,
++// proprietary-codec support is provided by platform decoders, so the historical
++// behavior (unconditional support) is preserved.
++bool IsExternalH264DecoderAvailable() {
++#if BUILDFLAG(ENABLE_FFMPEG)
++  static const bool kAvailable =
++      avcodec_find_decoder(AV_CODEC_ID_H264) != nullptr;
++  return kAvailable;
++#else
++  return true;
++#endif  // BUILDFLAG(ENABLE_FFMPEG)
++}
++
++// Returns true iff the currently loaded libffmpeg.so provides an AAC decoder.
++// See IsExternalH264DecoderAvailable() for the non-FFmpeg rationale.
++bool IsExternalAacDecoderAvailable() {
++#if BUILDFLAG(ENABLE_FFMPEG)
++  static const bool kAvailable =
++      avcodec_find_decoder(AV_CODEC_ID_AAC) != nullptr;
++  return kAvailable;
++#else
++  return true;
++#endif  // BUILDFLAG(ENABLE_FFMPEG)
++}
++
+ bool IsDecoderDolbyVisionProfileSupported(const VideoType& type) {
+ #if BUILDFLAG(ENABLE_PLATFORM_HEVC) &&                      \
+     BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT) && \
+@@ -447,7 +484,7 @@ bool IsDefaultDecoderSupportedVideoType(const VideoType& type) {
+     case VideoCodec::kTheora:
+       return IsDecoderBuiltInVideoCodec(type.codec);
+     case VideoCodec::kH264:
+-      return true;
++      return IsExternalH264DecoderAvailable();
+     case VideoCodec::kVP8:
+       return IsDecoderBuiltInVideoCodec(type.codec)
+                  ? true
+@@ -480,7 +517,10 @@ bool IsDefaultDecoderSupportedAudioType(const AudioType& type) {
+ 
+   switch (type.codec) {
+     case AudioCodec::kAAC:
+-      return IsDecoderAACSupported(type);
++      // Gate on the runtime libffmpeg probe, then defer to the existing
++      // xHE-AAC profile logic (which handles the supplemental platform-decoder
++      // cache on Android/macOS/Windows and returns false elsewhere).
++      return IsExternalAacDecoderAvailable() && IsDecoderAACSupported(type);
+     case AudioCodec::kFLAC:
+     case AudioCodec::kMP3:
+     case AudioCodec::kOpus:

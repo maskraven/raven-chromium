@@ -1,0 +1,13 @@
+# build/args/win-arm64.gn — Windows on ARM (arm64). Concatenated AFTER common.gni by
+# build/gen-and-build.sh. Cross-compiles on a Windows x64 host (target_cpu="arm64");
+# requires the arm64 toolchain component of the pinned MSVC/SDK. Windows personas need a
+# matching Windows build host (README §5 host constraint); wired up for release in Plan 05.
+target_os = "win"
+target_cpu = "arm64"
+
+# Plan 05 codecs (route 1): bundle H.264/AAC/MP3/etc. so canPlayType / MediaCapabilities
+# report real Chrome codec support AND playback works — closes the VIDEO_CODECS fingerprint
+# tell. Windows ships the decoders (patent-licensing accepted for this platform; see
+# docs/plans/05 + docs/contract). Linux uses the user-supplied-libffmpeg route instead.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"

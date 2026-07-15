@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "seed": 9988776655443322110,
+  "os": "windows",
+  "platform": "Win32",
+  "chromeMajor": 150,
+  "hardwareConcurrency": 8,
+  "deviceMemory": 8,
+  "gpu": {
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "architecture": "gen-9",
+    "device": "Intel(R) UHD Graphics 630"
+  },
+  "screen": {
+    "w": 1920,
+    "h": 1080,
+    "dpr": 1,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "availW": 1920,
+    "availH": 1032
+  },
+  "languages": [
+    "en-GB",
+    "en"
+  ],
+  "locale": "en-GB",
+  "timezone": "Europe/London"
+}

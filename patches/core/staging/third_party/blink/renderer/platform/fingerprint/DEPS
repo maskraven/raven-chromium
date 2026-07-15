@@ -1,0 +1,19 @@
+# third_party/blink/renderer/platform/fingerprint/DEPS
+#
+# Local include-rule allowlist for fingerprint::Profile. Blink's platform DEPS
+# (third_party/blink/renderer/platform/DEPS) already permits base/command_line.h,
+# base/json, base/values.h and base/no_destructor.h. These three are the only
+# additions Profile needs; local rules are additive to the parent platform rules.
+include_rules = [
+  # The lifted PRNG primitives: farbling_prng.h (FarblingPRNG) + siphash.h.
+  # farbling_prng.h transitively pulls absl/random, whose repo-global deny is
+  # allowlisted in third_party/lifted/DEPS (checkdeps only flags direct includes,
+  # so no absl allowlist is needed here — Profile never includes absl directly).
+  "+third_party/lifted",
+
+  # Renderer decodes the base64(compact-json) descriptor blob in Profile's ctor.
+  "+base/base64.h",
+
+  # base::StringToUint64 for the u64 seed carried as a decimal string.
+  "+base/strings/string_number_conversions.h",
+]

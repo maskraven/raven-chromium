@@ -1,0 +1,82 @@
+# patches/series — ordered RAVEN patch series, applied by build/apply-patches.sh
+# on top of the ungoogled tree (ungoogled's own series is applied by build/sync.sh).
+#
+# One patch path per line, RELATIVE TO patches/. Order = apply order.
+#   core/1xx-*.patch         architecture: PRNG, keyed seed, descriptor (Plan 02)
+#   fingerprint/{b0x,0xx}    rebased baseline 19 (Plan 01)  <-- fp-chromium 144 set
+#   fingerprint/2xx-*.patch  new surfaces (Plan 03)
+#
+# Plan 01: fingerprint-chromium 144 fingerprint surface, rebased 144->150.
+# Order mirrors fingerprint-chromium's own patches/series (bromite block first,
+# then the 000-018 fingerprint block). fingerprint-chromium is ungoogled-based,
+# so these were authored against ungoogled-144 and apply onto ungoogled-150 with
+# `git apply --3way` (same base, milestone delta only).
+
+# --- core block (Plan 02: PRNG/seed/descriptor architecture) ---
+# 100 (lifted primitives + absl visibility) and 101 (Profile + platform/BUILD.gn)
+# add new files / independent edits, so they apply first. 102 (plumbing) EXTENDS
+# fingerprint/000's switch block, so it is ordered AFTER the fingerprint block (EOF).
+core/100-lift-prng-primitives.patch
+core/101-descriptor-profile.patch
+
+# --- bromite block ---
+# VERIFY@150 (2026-07-14) found b01 (clientrects/measuretext noise) and b03
+# (canvas-image-data noise) are ALREADY carried byte-for-byte by ungoogled-150
+# (upstream ungoogled absorbed the bromite fingerprinting-noise patches; b01 =
+# ungoogled PR #377). Re-applying rejects (no 144 base blob in the 150 object DB
+# for a 3-way no-op). DROPPED from the series; files kept under fingerprint/ for
+# provenance. COHERENCE NOTE for Plan 02/03: the native noise runs on
+# base::RandDouble — our deterministic SipHash->randen path must supersede it.
+#   fingerprint/b01-clientrects-measuretext-flags.patch   # REDUNDANT in ungoogled-150 — DROPPED
+#   fingerprint/b03-canvas-image-data-noise.patch         # REDUNDANT in ungoogled-150 — DROPPED
+# fingerprint/b02-max-connections-per-host.patch   # REDUNDANT in ungoogled-150 (already carried byte-for-byte, incl. browser_process_impl.cc SocketPoolType::kNormal block) — DROPPED like b01/b03 (Plan01 exec 2026-07-14)
+
+# --- fingerprint block (fp-chromium 000-018, gaps at 004/008/017 are upstream) ---
+fingerprint/000-add-fingerprint-switches.patch
+fingerprint/001-disable-runtime-enable.patch
+fingerprint/002-user-agent-fingerprint.patch
+fingerprint/003-audio-fingerprint.patch
+fingerprint/005-hardware-concurrency-fingerprint.patch
+fingerprint/006-font-fingerprint.patch
+fingerprint/007-shadow-root.patch
+fingerprint/009-webdriver.patch
+fingerprint/010-headless.patch
+fingerprint/011-gpu-info.patch
+fingerprint/012-canvas-get-image-data.patch
+fingerprint/013-canvas-toDataURL.patch
+fingerprint/014-client-rects.patch
+fingerprint/015-canvas-measure-text.patch
+fingerprint/016-webgl-readPixels.patch
+fingerprint/018-timezone.patch
+
+# --- new surfaces (Plan 03): read fingerprint::Profile descriptor.
+# Pattern: per-field switch override > descriptor (Profile::Get().active()) > real. ---
+fingerprint/201-hardware-concurrency-descriptor.patch
+fingerprint/202-device-memory-descriptor.patch
+fingerprint/203-screen-descriptor.patch
+fingerprint/204-webgpu-adapter-descriptor.patch
+fingerprint/205-webrtc-disable.patch
+fingerprint/206-plugins-coherence.patch
+fingerprint/207-languages-descriptor.patch
+fingerprint/208-geolocation-deny.patch
+fingerprint/209-keyboard-layout-descriptor.patch
+fingerprint/210-webusb-empty.patch
+fingerprint/211-speech-voices-descriptor.patch
+fingerprint/212-media-devices-descriptor.patch
+fingerprint/213-uach-chrome-version-150.patch
+fingerprint/214-timezone-descriptor.patch
+
+# --- W2 code follow-ups: Accept-Language header (browser-side single source) +
+# canvas/webgl/audio/client-rects noise re-keyed to descriptor.seed via
+# SurfacePrng/CanvasPrng (persona-specific + persistent; replaces banned std::hash). ---
+fingerprint/219-accept-language-header.patch
+fingerprint/220-canvas-webgl-seed.patch
+fingerprint/221-clientrects-seed.patch
+fingerprint/222-audio-seed.patch
+fingerprint/223-matchmedia-screen.patch
+fingerprint/224-webgl-param-set.patch
+fingerprint/225-linux-codec-swap-gate.patch
+fingerprint/226-webgl-dataset-macos-upgrade.patch
+
+# --- core plumbing (applied LAST — extends fingerprint/000's switch block) ---
+core/102-profile-plumbing.patch

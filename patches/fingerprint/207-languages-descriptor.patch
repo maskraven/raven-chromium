@@ -1,0 +1,33 @@
+diff --git a/third_party/blink/renderer/core/frame/navigator_language.cc b/third_party/blink/renderer/core/frame/navigator_language.cc
+index 75cd3461317b7..259e6979b74b2 100644
+--- a/third_party/blink/renderer/core/frame/navigator_language.cc
++++ b/third_party/blink/renderer/core/frame/navigator_language.cc
+@@ -9,6 +9,7 @@
+ #include "third_party/blink/public/common/switches.h"
+ #include "third_party/blink/renderer/core/frame/web_feature.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/language.h"
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+ 
+@@ -41,6 +42,20 @@ AtomicString NavigatorLanguage::language() {
+ }
+ 
+ const Vector<String>& NavigatorLanguage::languages() {
++  // Raven descriptor (Plan 03): navigator.languages co-varies with the persona.
++  // Read renderer-side from the process-global fingerprint::Profile (no browser
++  // file I/O). NOTE: the Accept-Language request header derives from browser-side
++  // RendererPreferences.accept_languages and is a documented v1 coherence gap
++  // (a browser-startup descriptor parse is future work).
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && !profile.descriptor().languages.empty()) {
++    languages_.clear();
++    for (const std::string& lang : profile.descriptor().languages) {
++      languages_.push_back(String::FromUtf8(lang));
++    }
++    languages_dirty_ = false;
++    return languages_;
++  }
+   EnsureUpdatedLanguage();
+   return languages_;
+ }

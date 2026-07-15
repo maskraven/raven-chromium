@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "seed": 8888888888888888888,
+  "os": "macos",
+  "platform": "MacIntel",
+  "chromeMajor": 150,
+  "hardwareConcurrency": 12,
+  "deviceMemory": 8,
+  "gpu": {
+    "vendor": "Google Inc. (Apple)",
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)",
+    "architecture": "apple-gpu",
+    "device": "Apple M3 Pro"
+  },
+  "screen": {
+    "w": 1512,
+    "h": 982,
+    "dpr": 2,
+    "colorDepth": 30,
+    "pixelDepth": 30,
+    "availW": 1512,
+    "availH": 944
+  },
+  "languages": [
+    "fr-FR",
+    "fr"
+  ],
+  "locale": "fr-FR",
+  "timezone": "Europe/Paris"
+}

@@ -1,0 +1,16 @@
+# build/args/linux-x64.gn — Plan 00. Concatenated AFTER common.gni by
+# build/gen-and-build.sh. Linux x64 is the CI / reference target (README §00).
+target_os = "linux"
+target_cpu = "x64"
+
+# Plan 05 codecs (route 2 — Linux user-supplied libffmpeg). Ship the H.264/AAC SUPPORT
+# code + a SWAPPABLE libffmpeg.so that carries NO patented decoders (ffmpeg_branding stays
+# "Chromium"). canPlayType / MediaCapabilities advertise H.264/AAC ONLY when a decoder is
+# actually present — a runtime avcodec_find_decoder() probe (fingerprint/225) — so the fork
+# stays coherent AND distributes no patented code. To enable, the user replaces
+# $ORIGIN/libffmpeg.so with a licensed Chrome-branded build (a --path flag isn't possible:
+# libffmpeg is a DT_NEEDED lib loaded by ld.so before main; see docs/contract).
+proprietary_codecs = true
+ffmpeg_branding = "Chromium"
+is_component_ffmpeg = true
+media_use_ffmpeg = true

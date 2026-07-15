@@ -1,0 +1,31 @@
+diff --git a/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc b/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
+index 534277a85ae07..93b02886757cd 100644
+--- a/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
++++ b/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
+@@ -28,6 +28,7 @@
+ #include "third_party/blink/renderer/core/page/plugin_data.h"
+ #include "third_party/blink/renderer/modules/plugins/dom_mime_type_array.h"
+ #include "third_party/blink/renderer/modules/plugins/navigator_plugins.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+ #include "third_party/blink/renderer/platform/wtf/vector.h"
+@@ -135,6 +136,18 @@ HeapVector<Member<DOMMimeType>> DOMPluginArray::GetFixedMimeTypeArray() {
+ }
+ 
+ bool DOMPluginArray::IsPdfViewerAvailable() {
++  // Raven descriptor (Plan 03): the internal PDF viewer is Chrome's fixed,
++  // spec'd plugin set and is enabled on every v1 (desktop) persona. This method
++  // is the single source feeding BOTH navigator.plugins (the hard-coded list
++  // above) AND navigator.pdfViewerEnabled, so reporting it unconditionally when
++  // a profile is active keeps the pair stable + coherent across hosts,
++  // independent of the host's registered PluginData. No exotic plugins are
++  // fabricated — only Chrome's standard PDF viewer set is exposed.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    return true;
++  }
++
+   auto* data = GetPluginData();
+   if (!data)
+     return false;

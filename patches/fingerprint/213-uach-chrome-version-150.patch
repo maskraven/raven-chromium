@@ -1,0 +1,32 @@
+diff --git a/components/ungoogled/fingerprint_data.h b/components/ungoogled/fingerprint_data.h
+index d5d92fcec3ece..87cc5e643603f 100644
+--- a/components/ungoogled/fingerprint_data.h
++++ b/components/ungoogled/fingerprint_data.h
+@@ -25,20 +25,20 @@ constexpr const char* kVivaldiDisplayName = "Vivaldi";
+ 
+ // Chromium version list (for seed-based selection)
+ constexpr const char* kChromiumVersions[] = {
+-    "144.0.7559.132",
+-    "144.0.7559.109",
+-    "144.0.7559.96",
+-    "144.0.7559.59"
++    "150.0.7871.114",
++    "150.0.7871.114",
++    "150.0.7871.114",
++    "150.0.7871.114"
+ };
+ 
+ // Default versions for Client Hints (Sec-CH-UA)
+-constexpr const char* kChromeDefaultVersion = "144.0.7559.132";
+-constexpr const char* kEdgeDefaultVersion = "144.0.3719.141";
++constexpr const char* kChromeDefaultVersion = "150.0.7871.114";
++constexpr const char* kEdgeDefaultVersion = "150.0.3719.141";
+ constexpr const char* kOperaDefaultVersion = "129.0.5818.0";
+ constexpr const char* kVivaldiDefaultVersion = "7.8.3952.73";
+ 
+ // Default versions for User-Agent string suffix
+-constexpr const char* kEdgeUAVersion = "144.0.0.0";
++constexpr const char* kEdgeUAVersion = "150.0.0.0";
+ constexpr const char* kOperaUAVersion = "129.0.0.0";
+ constexpr const char* kVivaldiUAVersion = "7.8.3952.73";
+ 

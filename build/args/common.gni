@@ -1,0 +1,38 @@
+# build/args/common.gni — shared gn args for all Raven-Chromium builds.
+# Plan 00 / T0.3. build/gen-and-build.sh CONCATENATES this file with
+# build/args/<platform>.gn to form the final args (it does NOT use gn import():
+# these args live outside the chromium src tree, so "//" paths can't reach them).
+#
+# Base  = ungoogled-chromium 150 recommended flags (verbatim from flags.gn
+#         @ tag 150.0.7871.114-1) — see build/PINS.
+# Extra = Raven dev toggles (release-like, NON-official; fast iteration).
+# Bump this file only alongside build/PINS.
+
+# --- Raven dev toggles ---
+is_debug = false
+is_official_build = false          # official = PGO + full LTO = far slower; keep off for dev
+is_component_build = false         # release-like single binary (flip true for faster incremental)
+symbol_level = 1                   # set 0 for the fastest link during first bring-up
+blink_symbol_level = 0
+dcheck_always_on = true            # keep DCHECKs on during development
+use_remoteexec = false             # local siso/ninja, no RBE (spec §7.6; revisit if iteration hurts)
+
+# --- ungoogled-chromium recommended flags (flags.gn @ ungoogled_tag; do not edit piecemeal) ---
+chrome_pgo_phase=0
+clang_use_chrome_plugins=false
+disable_fieldtrial_testing_config=true
+enable_hangout_services_extension=false
+enable_mdns=false
+enable_remoting=false
+enable_reporting=false
+enable_service_discovery=false
+enable_widevine=true
+exclude_unwind_tables=true
+google_api_key=""
+google_default_client_id=""
+google_default_client_secret=""
+safe_browsing_mode=0
+treat_warnings_as_errors=false
+use_official_google_api_keys=false
+use_unofficial_version_number=false
+v8_drumbrake_bounds_checks=true

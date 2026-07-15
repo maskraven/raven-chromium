@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "seed": 5566778899001122334,
+  "os": "windows",
+  "platform": "Win32",
+  "chromeMajor": 150,
+  "hardwareConcurrency": 12,
+  "deviceMemory": 8,
+  "gpu": {
+    "vendor": "Google Inc. (AMD)",
+    "renderer": "ANGLE (AMD, AMD Radeon RX 6600 (0x000073FF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "architecture": "rdna-2",
+    "device": "AMD Radeon RX 6600"
+  },
+  "screen": {
+    "w": 2560,
+    "h": 1440,
+    "dpr": 1,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "availW": 2560,
+    "availH": 1392
+  },
+  "languages": [
+    "en-US",
+    "en"
+  ],
+  "locale": "en-US",
+  "timezone": "America/Los_Angeles"
+}

@@ -1,0 +1,104 @@
+# Raven-Chromium release — Plan 05 T5.3/T5.5. Tag-triggered per-OS signed builds.
+#
+# Each job runs on a MATCHING-OS self-hosted runner (README persona↔host constraint:
+# a Win11 persona is only built + validated on Windows, etc.). Chromium needs a big
+# runner with depot_tools + a synced ungoogled-150 checkout at ${CHROMIUM_SRC} — no
+# GitHub-hosted runner (any OS) can fit a Chromium build (~150 GB / >6 h).
+# macOS and Windows each build BOTH arches from a single host via cross-compile (matrix,
+# serialized so the shared checkout / out dir isn't clobbered). Signing secrets live in
+# CI secrets, never in-repo.
+name: release
+on:
+  push: { tags: ['v*'] }
+  workflow_dispatch: { inputs: { version: { required: true } } }
+
+jobs:
+  linux:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 600
+    env: { CHROMIUM_SRC: '${{ vars.CHROMIUM_SRC }}', PLATFORM: linux-x64 }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (release) + apply series
+        run: |
+          set -euo pipefail
+          git -C "$CHROMIUM_SRC" checkout -f raven-base
+          git -C "$CHROMIUM_SRC" submodule update --checkout --force v8 || true
+          CHROMIUM_SRC="$CHROMIUM_SRC" bash build/apply-patches.sh
+          CHROMIUM_SRC="$CHROMIUM_SRC" PLATFORM="$PLATFORM" RELEASE=1 bash build/gen-and-build.sh
+      - name: Package + validate + GPG sign
+        run: |
+          bash build/package-linux.sh --src "$CHROMIUM_SRC" --out dist --version "${GITHUB_REF_NAME#v}" \
+            --probe "$PWD/test/probe/fingerprint-probe.html" \
+            --profile "$PWD/profile-db/fixtures/linux-intel-en-us.json" \
+            --gpg-key "${{ secrets.GPG_KEY_ID }}"
+      - uses: actions/upload-artifact@v4
+        with: { name: linux-x64, path: 'dist/*' }
+
+  macos:
+    # Apple-silicon runner: builds arm64 natively AND x64 via cross-compile.
+    runs-on: [self-hosted, macos]
+    timeout-minutes: 600
+    strategy:
+      fail-fast: false
+      max-parallel: 1     # legs share $CHROMIUM_SRC_MAC + out/Default — serialize to avoid clobber
+      matrix:
+        include:
+          - { platform: macos-arm64, profile: profile-db/fixtures/macos-arm-apple-en-us.json, artifact: macos-arm64 }
+          # x64 (Intel) cross-built on the arm64 host. TODO: add a dedicated Intel-mac persona fixture;
+          # validating an x64 binary on Apple-silicon needs Rosetta 2 on the runner.
+          - { platform: macos-x64,   profile: profile-db/fixtures/macos-arm-apple-en-us.json, artifact: macos-x64 }
+    env: { CHROMIUM_SRC: '${{ vars.CHROMIUM_SRC_MAC }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.platform }} (release) + apply series
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          git -C "$CHROMIUM_SRC" checkout -f raven-base
+          git -C "$CHROMIUM_SRC" submodule update --checkout --force v8 || true
+          CHROMIUM_SRC="$CHROMIUM_SRC" bash build/apply-patches.sh
+          CHROMIUM_SRC="$CHROMIUM_SRC" PLATFORM="${{ matrix.platform }}" RELEASE=1 bash build/gen-and-build.sh
+      - name: Package + sign + notarize
+        run: |
+          bash build/package-macos.sh --src "$CHROMIUM_SRC" --out dist --version "${GITHUB_REF_NAME#v}" \
+            --identity "${{ secrets.MACOS_IDENTITY }}" --team-id "${{ secrets.MACOS_TEAM_ID }}" \
+            --keychain-profile "${{ secrets.NOTARY_PROFILE }}" \
+            --probe "$PWD/test/probe/fingerprint-probe.html" \
+            --profile "$PWD/${{ matrix.profile }}"
+      - uses: actions/upload-artifact@v4
+        with: { name: '${{ matrix.artifact }}', path: 'dist/*' }
+
+  windows:
+    # Windows x64 host: builds x64 natively AND arm64 via cross-compile.
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 600
+    strategy:
+      fail-fast: false
+      max-parallel: 1     # legs share $CHROMIUM_SRC_WIN + out/Default — serialize to avoid clobber
+      matrix:
+        include:
+          - { platform: win-x64,   profile: profile-db/fixtures/win11-nvidia-en-us.json, artifact: win-x64 }
+          # arm64 cross-built on the x64 host. TODO: add a dedicated Windows-on-ARM persona fixture.
+          - { platform: win-arm64, profile: profile-db/fixtures/win11-nvidia-en-us.json, artifact: win-arm64 }
+    env: { CHROMIUM_SRC: '${{ vars.CHROMIUM_SRC_WIN }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.platform }} (release) + apply series
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          git -C "$CHROMIUM_SRC" checkout -f raven-base
+          git -C "$CHROMIUM_SRC" submodule update --checkout --force v8 || true
+          CHROMIUM_SRC="$CHROMIUM_SRC" bash build/apply-patches.sh
+          CHROMIUM_SRC="$CHROMIUM_SRC" PLATFORM="${{ matrix.platform }}" RELEASE=1 bash build/gen-and-build.sh
+      - name: Package + Authenticode sign
+        shell: pwsh
+        run: |
+          ./build/package-windows.ps1 -Src "$env:CHROMIUM_SRC" -Out dist -Version ($env:GITHUB_REF_NAME -replace '^v','') `
+            -Thumbprint "${{ secrets.WIN_CERT_THUMBPRINT }}" `
+            -Probe "$PWD/test/probe/fingerprint-probe.html" `
+            -Profile "$PWD/${{ matrix.profile }}"
+      - uses: actions/upload-artifact@v4
+        with: { name: '${{ matrix.artifact }}', path: 'dist/*' }

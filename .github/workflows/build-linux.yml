@@ -1,0 +1,56 @@
+# Raven-Chromium CI — Linux build + validate. Plan 00 T0.6 + Plan 05 T5.5.
+#
+# Chromium cannot build on hosted runners (needs ~150 GB disk, many hours), so
+# this targets a SELF-HOSTED Linux runner that already has depot_tools + a synced
+# ungoogled-150 checkout at $CHROMIUM_SRC (see build/sync.sh / build/PINS). It is
+# the same shape as the manual flow this repo was built with.
+name: build-linux
+on:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+  workflow_dispatch: {}
+
+env:
+  CHROMIUM_SRC: ${{ vars.CHROMIUM_SRC }}   # e.g. /home/runner/chromium/src
+  PLATFORM: linux-x64
+
+jobs:
+  build-and-validate:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 600
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm pin matches the checkout
+        run: |
+          set -euo pipefail
+          grep -q "chromium_tag=" build/PINS
+          test -d "$CHROMIUM_SRC/.git" || { echo "no checkout at CHROMIUM_SRC — run build/sync.sh first"; exit 1; }
+
+      - name: Reset to ungoogled baseline
+        run: |
+          set -euo pipefail
+          git -C "$CHROMIUM_SRC" checkout -f raven-base
+          git -C "$CHROMIUM_SRC" submodule update --checkout --force v8 || true
+
+      - name: Apply Raven series
+        run: CHROMIUM_SRC="$CHROMIUM_SRC" bash build/apply-patches.sh
+
+      - name: Build (dev args; use RELEASE=1 for release)
+        run: CHROMIUM_SRC="$CHROMIUM_SRC" PLATFORM="$PLATFORM" bash build/gen-and-build.sh
+
+      - name: Validate persona (persistence + coherence + branding)
+        run: |
+          bash build/validate-persona.sh \
+            --chrome "$CHROMIUM_SRC/out/Default/chrome" \
+            --probe "$PWD/test/probe/fingerprint-probe.html" \
+            --profile "$PWD/profile-db/fixtures/linux-intel-en-us.json" \
+            --runs 3
+
+      - name: Validate descriptor fixtures (schema + coherence)
+        run: python3 profile-db/validate.py --all profile-db/fixtures/
+
+  # A tag-triggered `release` job (Plan 05 T5.5) would add: gen with RELEASE=1,
+  # build/package-linux.sh with --gpg-key, and upload the signed tarball +
+  # SHA256SUMS + probe snapshots. macOS/Windows release jobs run on matching-OS
+  # self-hosted runners with codesign/notarize / Authenticode (T5.3).

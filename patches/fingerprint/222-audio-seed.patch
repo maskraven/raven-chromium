@@ -1,0 +1,42 @@
+diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+index 5c5e4d1ed1186..11361b75ab396 100644
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -45,6 +45,7 @@
+ #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+ #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+@@ -225,10 +226,25 @@ OfflineAudioContext::OfflineAudioContext(LocalDOMWindow* window,
+                        render_quantum_frames),
+       total_render_frames_(number_of_frames) {
+   float adjusted_sample_rate = sample_rate;
+-  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (!command_line->HasSwitch(switches::kDisableSpoofing) ||
+-      command_line->GetSwitchValueASCII(switches::kDisableSpoofing).find("audio") == std::string::npos) {
+-    adjusted_sample_rate += getSampleRateNoise(sample_rate);
++  if (fingerprint::Profile::Get().active()) {
++    // Re-key audio sample-rate noise to the descriptor seed (design §1). Pull
++    // one draw from the kAudio surface stream into a named local (C++ argument
++    // evaluation order is unspecified), map it to a unit double, and apply the
++    // same ±0.01 magnitude the legacy std::hash path used.
++    auto prng = fingerprint::SurfacePrng(fingerprint::Profile::Get().seed(),
++                                         fingerprint::Surface::kAudio);
++    const uint64_t draw = prng();
++    const double d = (draw >> 11) * (1.0 / 9007199254740992.0);
++    const double noise = (d - 0.5) * 0.02;
++    adjusted_sample_rate += static_cast<float>(noise);
++  } else {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch(switches::kDisableSpoofing) ||
++        command_line->GetSwitchValueASCII(switches::kDisableSpoofing)
++                .find("audio") == std::string::npos) {
++      adjusted_sample_rate += getSampleRateNoise(sample_rate);
++    }
+   }
+ 
+   destination_node_ = OfflineAudioDestinationNode::Create(

@@ -1,0 +1,248 @@
+diff --git a/chrome/browser/chrome_browser_main.cc b/chrome/browser/chrome_browser_main.cc
+index f653d10bb35ec..a52120f568eac 100644
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -121,6 +121,7 @@
+ #include "components/startup_metric_utils/browser/startup_metric_utils.h"
+ #include "components/tracing/common/background_tracing_utils.h"
+ #include "components/translate/core/browser/translate_metrics_logger_impl.h"
++#include "components/ungoogled/fingerprint_accept_language.h"
+ #include "components/variations/service/variations_service.h"
+ #include "components/variations/synthetic_trials_active_group_id_provider.h"
+ #include "components/variations/variations_ids_provider.h"
+@@ -1200,6 +1201,13 @@ int ChromeBrowserMainParts::ApplyFirstRunPrefs() {
+ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
+   TRACE_EVENT0("startup", "ChromeBrowserMainParts::PreCreateThreadsImpl");
+ 
++  // Raven: read + cache the fingerprint descriptor's language list here, while
++  // blocking file I/O is still permitted (this runs before
++  // base::DisallowUnresponsiveTasks), so the Accept-Language header and the
++  // renderer language list can co-vary with the spoofed navigator.languages
++  // without any later UI-thread I/O.
++  ungoogled::InitFingerprintAcceptLanguages();
++
+   if (startup_data_->chrome_feature_list_creator()->actual_locale().empty()) {
+     ShowMissingLocaleMessageBox();
+     return CHROME_RESULT_CODE_MISSING_DATA;
+diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
+index 5ab6a789644fc..4b1b95ab68fb2 100644
+--- a/chrome/browser/net/profile_network_context_service.cc
++++ b/chrome/browser/net/profile_network_context_service.cc
+@@ -74,6 +74,7 @@
+ #include "components/prefs/pref_registry_simple.h"
+ #include "components/prefs/pref_service.h"
+ #include "components/privacy_sandbox/privacy_sandbox_prefs.h"
++#include "components/ungoogled/fingerprint_accept_language.h"
+ #include "content/public/browser/browser_context.h"
+ #include "content/public/browser/browser_thread.h"
+ #include "content/public/browser/first_party_sets_handler.h"
+@@ -712,6 +713,18 @@ void ProfileNetworkContextService::OnThirdPartyCookieBlockingChanged(
+ }
+ 
+ std::string ProfileNetworkContextService::ComputeAcceptLanguage() const {
++  // Raven: when a fingerprint descriptor supplies an explicit language list,
++  // use it as the single source for the Accept-Language header so it co-varies
++  // with the spoofed navigator.languages. It is still shaped by the existing
++  // ReduceAcceptLanguageUtils / ComputeAcceptLanguageFromPref pipeline.
++  const std::string& fingerprint_languages =
++      ungoogled::GetFingerprintAcceptLanguages();
++  if (!fingerprint_languages.empty()) {
++    return ComputeAcceptLanguageFromPref(
++        content::ReduceAcceptLanguageUtils::GetLanguagesWithMaxCount(
++            fingerprint_languages));
++  }
++
+   // TODO:(https://crbug.com/40224802) Return only single language without
+   // expanding the language list if the DisableReduceAcceptLanguage deprecation
+   // trial ends.
+diff --git a/chrome/browser/renderer_preferences_util.cc b/chrome/browser/renderer_preferences_util.cc
+index 24c322a58bc48..0dbf3714ef1e9 100644
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -25,6 +25,7 @@
+ #include "components/language/core/browser/language_prefs.h"
+ #include "components/language/core/browser/pref_names.h"
+ #include "components/prefs/pref_service.h"
++#include "components/ungoogled/fingerprint_accept_language.h"
+ #include "content/public/browser/renderer_preferences_util.h"
+ #include "content/public/common/content_features.h"
+ #include "media/media_buildflags.h"
+@@ -190,8 +191,19 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
+                  &prefs->webrtc_udp_min_port, &prefs->webrtc_udp_max_port);
+   prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(
+       pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls));
+-  prefs->accept_languages = GetLanguageListForProfile(
+-      profile, pref_service->GetString(language::prefs::kAcceptLanguages));
++  // Raven: keep the renderer language list (used for service workers and the
++  // languagechange event) coherent with the fingerprint descriptor when one
++  // supplies an explicit language list; otherwise fall back to profile prefs.
++  const std::string& fingerprint_languages =
++      ungoogled::GetFingerprintAcceptLanguages();
++  if (!fingerprint_languages.empty()) {
++    prefs->accept_languages =
++        content::ReduceAcceptLanguageUtils::GetLanguagesWithMaxCount(
++            fingerprint_languages);
++  } else {
++    prefs->accept_languages = GetLanguageListForProfile(
++        profile, pref_service->GetString(language::prefs::kAcceptLanguages));
++  }
+ #if !BUILDFLAG(IS_MAC)
+   prefs->plugin_fullscreen_allowed =
+       pref_service->GetBoolean(prefs::kFullscreenAllowed);
+diff --git a/components/ungoogled/BUILD.gn b/components/ungoogled/BUILD.gn
+index 9b484124043e8..c294a0b85d29b 100644
+--- a/components/ungoogled/BUILD.gn
++++ b/components/ungoogled/BUILD.gn
+@@ -4,6 +4,8 @@
+ 
+ component("ungoogled_switches") {
+   sources = [
++    "fingerprint_accept_language.cc",
++    "fingerprint_accept_language.h",
+     "fingerprint_data.h",
+     "ungoogled_switches.h",
+     "ungoogled_switches.cc",
+diff --git a/components/ungoogled/fingerprint_accept_language.cc b/components/ungoogled/fingerprint_accept_language.cc
+new file mode 100644
+index 0000000000000..6b03403823076
+--- /dev/null
++++ b/components/ungoogled/fingerprint_accept_language.cc
+@@ -0,0 +1,94 @@
++// Copyright (c) 2020 The ungoogled-chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/ungoogled/fingerprint_accept_language.h"
++
++#include <optional>
++#include <string>
++#include <vector>
++
++#include "base/command_line.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/json/json_reader.h"
++#include "base/no_destructor.h"
++#include "base/strings/string_util.h"
++#include "base/values.h"
++#include "components/ungoogled/ungoogled_switches.h"
++
++namespace ungoogled {
++
++namespace {
++
++// Process-wide cache for the joined Accept-Language source string. Held in a
++// base::NoDestructor to avoid an exit-time destructor for the std::string.
++std::string* CacheStorage() {
++  static base::NoDestructor<std::string> cache;
++  return cache.get();
++}
++
++// Reads the descriptor JSON referenced by --fingerprint-profile and returns its
++// "languages" tags joined as a comma-separated string, or an empty string on
++// any error (switch absent, empty/unreadable path, malformed JSON, or a
++// missing/empty "languages" list).
++std::string ComputeFromDescriptor() {
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  if (!command_line->HasSwitch(switches::kFingerprintProfile)) {
++    return std::string();
++  }
++
++  const base::FilePath path =
++      command_line->GetSwitchValuePath(switches::kFingerprintProfile);
++  if (path.empty()) {
++    return std::string();
++  }
++
++  std::string json;
++  if (!base::ReadFileToString(path, &json)) {
++    return std::string();
++  }
++
++  std::optional<base::DictValue> root =
++      base::JSONReader::ReadDict(json, base::JSON_PARSE_RFC);
++  if (!root) {
++    return std::string();
++  }
++
++  const base::ListValue* languages = root->FindList("languages");
++  if (!languages) {
++    return std::string();
++  }
++
++  std::vector<std::string> tags;
++  tags.reserve(languages->size());
++  for (const base::Value& item : *languages) {
++    const std::string* tag = item.GetIfString();
++    if (tag && !tag->empty()) {
++      tags.push_back(*tag);
++    }
++  }
++  if (tags.empty()) {
++    return std::string();
++  }
++
++  return base::JoinString(tags, ",");
++}
++
++}  // namespace
++
++void InitFingerprintAcceptLanguages() {
++  static bool initialized = false;
++  if (initialized) {
++    return;
++  }
++  initialized = true;
++  *CacheStorage() = ComputeFromDescriptor();
++}
++
++const std::string& GetFingerprintAcceptLanguages() {
++  return *CacheStorage();
++}
++
++}  // namespace ungoogled
+diff --git a/components/ungoogled/fingerprint_accept_language.h b/components/ungoogled/fingerprint_accept_language.h
+new file mode 100644
+index 0000000000000..989931d42bddb
+--- /dev/null
++++ b/components/ungoogled/fingerprint_accept_language.h
+@@ -0,0 +1,38 @@
++// Copyright (c) 2020 The ungoogled-chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Raven: coherent Accept-Language sourced from the fingerprint descriptor.
++//
++// Reads the "languages" list from the JSON descriptor referenced by the
++// --fingerprint-profile switch once, during browser startup (from a phase where
++// blocking file I/O is still permitted, e.g. PreCreateThreads), joins the tags
++// into a comma-separated Accept-Language source string, and caches it. Callers
++// on any thread then read the cached value with no I/O, so the HTTP request
++// header and the service-worker language list co-vary with the spoofed
++// navigator.languages.
++
++#ifndef COMPONENTS_UNGOOGLED_FINGERPRINT_ACCEPT_LANGUAGE_H_
++#define COMPONENTS_UNGOOGLED_FINGERPRINT_ACCEPT_LANGUAGE_H_
++
++#include <string>
++
++#include "base/component_export.h"
++
++namespace ungoogled {
++
++// Reads and caches the fingerprint descriptor's language list. Performs
++// blocking file I/O and MUST be called once during startup from a phase where
++// that is allowed (before base::DisallowUnresponsiveTasks). Idempotent: only
++// the first call does work. Leaves the cache empty when the switch is absent or
++// the descriptor is missing/invalid.
++COMPONENT_EXPORT(UNGOOGLED) void InitFingerprintAcceptLanguages();
++
++// Returns the cached comma-separated Accept-Language source string (e.g.
++// "en-US,en"). Empty when no valid descriptor was supplied. Does no I/O and is
++// safe to call from any thread after InitFingerprintAcceptLanguages().
++COMPONENT_EXPORT(UNGOOGLED) const std::string& GetFingerprintAcceptLanguages();
++
++}  // namespace ungoogled
++
++#endif  // COMPONENTS_UNGOOGLED_FINGERPRINT_ACCEPT_LANGUAGE_H_

@@ -1,0 +1,90 @@
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+index b2a5c70aa11cd..51bd2df824a76 100644
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -5,6 +5,7 @@
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+ 
+ #include "base/command_line.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "base/feature_list.h"
+ #include "components/ungoogled/ungoogled_switches.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+@@ -61,14 +62,28 @@ String GetTimezoneId(const icu::TimeZone& timezone) {
+   return String(unicode::ToSpan(unicode_timezone_id));
+ }
+ 
+-String GetCurrentTimezoneId() {
++// Raven (Plan 03): effective spoofed timezone — per-field --timezone switch
++// override > descriptor (fingerprint::Profile) > "" (no spoof). IANA tz name.
++std::string GetFingerprintTimezone() {
+   const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+   if (command_line->HasSwitch(switches::kFingerprintTimezone)) {
+-    std::string timezone_str = command_line->GetSwitchValueASCII(switches::kFingerprintTimezone);
+-    if (!timezone_str.empty()) {
+-      return String::FromUtf8(timezone_str);
++    std::string tz = command_line->GetSwitchValueASCII(switches::kFingerprintTimezone);
++    if (!tz.empty()) {
++      return tz;
+     }
+   }
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active() && !profile.descriptor().timezone.empty()) {
++    return profile.descriptor().timezone;
++  }
++  return "";
++}
++
++String GetCurrentTimezoneId() {
++  std::string fp_tz = GetFingerprintTimezone();
++  if (!fp_tz.empty()) {
++    return String::FromUtf8(fp_tz);
++  }
+ 
+   std::unique_ptr<icu::TimeZone> timezone(icu::TimeZone::createDefault());
+   CHECK(timezone);
+@@ -107,13 +122,10 @@ TimeZoneController::TimeZoneController() {
+     host_timezone_id_ = GetCurrentTimezoneId();
+   }
+ 
+-  // Apply --timezone parameter at startup
+-  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kFingerprintTimezone)) {
+-    std::string timezone_str = command_line->GetSwitchValueASCII(switches::kFingerprintTimezone);
+-    if (!timezone_str.empty()) {
+-      SetIcuTimeZoneAndNotifyV8(String::FromUtf8(timezone_str));
+-    }
++  // Apply the spoofed timezone (--timezone switch or descriptor) at startup.
++  std::string fp_tz = GetFingerprintTimezone();
++  if (!fp_tz.empty()) {
++    SetIcuTimeZoneAndNotifyV8(String::FromUtf8(fp_tz));
+   }
+ }
+ 
+@@ -235,20 +247,12 @@ void TimeZoneController::ChangeTimeZoneOverride(const String& timezone_id) {
+ }
+ 
+ bool TimeZoneController::SetIcuTimeZoneAndNotifyV8(const String& timezone_id) {
+-  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  String actual_timezone_id;
+-
+-  if (command_line->HasSwitch(switches::kFingerprintTimezone)) {
+-    std::string timezone_str = command_line->GetSwitchValueASCII(switches::kFingerprintTimezone);
+-    if (!timezone_str.empty()) {
+-      actual_timezone_id = String::FromUtf8(timezone_str);
+-    } else {
+-      actual_timezone_id = timezone_id;
+-    }
+-  } else {
+-    DCHECK(!timezone_id.empty());
+-    actual_timezone_id = timezone_id;
+-  }
++  // Raven (Plan 03): the persona timezone (switch or descriptor) always wins
++  // over a programmatic override; otherwise use the requested id.
++  std::string fp_tz = GetFingerprintTimezone();
++  String actual_timezone_id =
++      fp_tz.empty() ? timezone_id : String::FromUtf8(fp_tz);
++  DCHECK(!actual_timezone_id.empty());
+ 
+   std::unique_ptr<icu::TimeZone> timezone(icu::TimeZone::createTimeZone(
+       icu::UnicodeString(actual_timezone_id.Ascii().data(), -1, US_INV)));

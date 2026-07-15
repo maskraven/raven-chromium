@@ -1,0 +1,12 @@
+# build/args/macos-x64.gn — macOS Intel (x64). Concatenated AFTER common.gni by
+# build/gen-and-build.sh. Cross-compiles cleanly on an Apple-silicon runner
+# (target_cpu="x64"); requires full Xcode matching build/PINS (xcode 26.5 / SDK 26.5).
+target_os = "mac"
+target_cpu = "x64"
+
+# Plan 05 codecs (route 1): bundle H.264/AAC/MP3/etc. so canPlayType / MediaCapabilities
+# report real Chrome codec support AND playback works — closes the VIDEO_CODECS fingerprint
+# tell. macOS ships the decoders (patent-licensing accepted for this platform; see
+# docs/plans/05 + docs/contract). Linux uses the user-supplied-libffmpeg route instead.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"

@@ -1,0 +1,87 @@
+diff --git a/third_party/blink/renderer/modules/mediastream/media_devices.cc b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+index b74ee0e251804..3f416b2fac00e 100644
+--- a/third_party/blink/renderer/modules/mediastream/media_devices.cc
++++ b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+@@ -62,6 +62,7 @@
+ #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
++#include "third_party/blink/renderer/platform/fingerprint/profile.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/mediastream/webrtc_uma_histograms.h"
+ #include "third_party/blink/renderer/platform/region_capture_crop_id.h"
+@@ -481,6 +482,32 @@ void RecordUma(EnumerateDevicesFirstStateOnContextDestroyed value) {
+       value);
+ }
+ 
++// Raven (Plan 03): deterministic, host-independent device set returned by
++// enumerateDevices() when a fingerprint profile is active. Real device
++// counts, ids and labels are a strong fingerprint vector, so we discard the
++// host enumeration entirely and synthesize the exact pre-permission shape that
++// real Chrome exposes before getUserMedia grants access: exactly one
++// audioinput, one videoinput and one audiooutput, each a blank placeholder
++// with an EMPTY deviceId, EMPTY label and EMPTY groupId. This normalizes any
++// host's device count to a plausible three and leaks nothing host-specific,
++// matching real Chrome's pre-permission output byte-for-byte. The shape is
++// constant, so it needs no seed and is trivially deterministic.
++MediaDeviceInfoVector BuildSpoofedDeviceInfos() {
++  const String kEmpty;
++
++  MediaDeviceInfoVector media_devices;
++  media_devices.push_back(MakeGarbageCollected<InputDeviceInfo>(
++      kEmpty, kEmpty, kEmpty,
++      mojom::blink::MediaDeviceType::kMediaAudioInput));
++  media_devices.push_back(MakeGarbageCollected<InputDeviceInfo>(
++      kEmpty, kEmpty, kEmpty,
++      mojom::blink::MediaDeviceType::kMediaVideoInput));
++  media_devices.push_back(MakeGarbageCollected<MediaDeviceInfo>(
++      kEmpty, kEmpty, kEmpty,
++      mojom::blink::MediaDeviceType::kMediaAudioOutput));
++  return media_devices;
++}
++
+ }  // namespace
+ 
+ const char MediaDevices::kSupplementName[] = "MediaDevices";
+@@ -525,6 +552,17 @@ ScriptPromise<IDLSequence<MediaDeviceInfo>> MediaDevices::enumerateDevices(
+       kEnumerateDevicesTimeout);
+   const auto promise = result_tracker->Promise();
+ 
++  // Raven (Plan 03): when a fingerprint profile is active, resolve immediately
++  // with the host-independent pre-permission device set (3 blank placeholders)
++  // and skip the browser round-trip — which can hang on headless/audio-less
++  // hosts (and is host-dependent anyway). The DevicesEnumerated intercept below
++  // is kept as a defensive fallback but is unreachable on this path.
++  if (fingerprint::Profile::Get().active()) {
++    result_tracker->Resolve(BuildSpoofedDeviceInfos());
++    tracer->End();
++    return promise;
++  }
++
+   SendLogMessage(base::StringPrintf(
+       "enumerateDevices({result_tracker=%p}, "
+       "{request_audio_input_capabilities=%s})",
+@@ -1426,6 +1464,23 @@ void MediaDevices::DevicesEnumerated(
+     return;
+   }
+ 
++  // Raven (Plan 03): when a fingerprint profile is active, ignore the host's
++  // real device enumeration entirely and resolve with the host-independent
++  // pre-permission set of three blank placeholders (see
++  // BuildSpoofedDeviceInfos()). Gated on profile.active() so host behavior is
++  // untouched when spoofing is off.
++  const fingerprint::Profile& profile = fingerprint::Profile::Get();
++  if (profile.active()) {
++    MediaDeviceInfoVector media_devices = BuildSpoofedDeviceInfos();
++    // The blank placeholders carry empty input-device ids, matching real
++    // Chrome's pre-permission output and thus the "no non-empty input device
++    // ids" branch of the UMA below.
++    ReportCompletedEnumerateDevices(/*is_successful=*/false);
++    result_tracker->Resolve(media_devices);
++    tracer->End();
++    return;
++  }
++
+   DCHECK_EQ(static_cast<wtf_size_t>(
+                 mojom::blink::MediaDeviceType::kNumMediaDeviceTypes),
+             enumeration.size());
