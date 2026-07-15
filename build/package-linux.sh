@@ -12,18 +12,19 @@
 set -euo pipefail
 
 SRC="" DIST="" VERSION="" PROBE="" PROFILE="" GPG_KEY="" SKIP_VALIDATE=0
-OUTDIR="out/Default"
+OUTDIR="out/Default" ARCHLBL=""
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 while [ $# -gt 0 ]; do case "$1" in
   --src) SRC="$2"; shift 2;; --out) DIST="$2"; shift 2;; --version) VERSION="$2"; shift 2;;
   --probe) PROBE="$2"; shift 2;; --profile) PROFILE="$2"; shift 2;;
   --gpg-key) GPG_KEY="$2"; shift 2;; --outdir) OUTDIR="$2"; shift 2;;
+  --arch) ARCHLBL="$2"; shift 2;;   # target arch label for the artifact name (else uname -m)
   --skip-validate) SKIP_VALIDATE=1; shift;; *) echo "unknown: $1" >&2; exit 2;; esac; done
 : "${SRC:?--src required}" "${DIST:?--out required}" "${VERSION:?--version required}"
 CHROME="$SRC/$OUTDIR/chrome"
 [ -x "$CHROME" ] || { echo "package: no chrome at $CHROME" >&2; exit 1; }
 
-ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH="x64"
+if [ -n "$ARCHLBL" ]; then ARCH="$ARCHLBL"; else ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH="x64"; fi
 NAME="raven-chromium-${VERSION}-linux-${ARCH}"
 STAGE="$DIST/$NAME"
 

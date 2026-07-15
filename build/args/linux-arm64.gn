@@ -1,0 +1,15 @@
+# build/args/linux-arm64.gn — Linux arm64 (aarch64). Concatenated AFTER common.gni by
+# build/gen-and-build.sh. arm64 is a CROSS-COMPILE from an x64 host and needs Chromium's
+# arm64 sysroot — build/build-linux.sh installs it
+# (build/linux/sysroot_scripts/install-sysroot.py --arch=arm64).
+target_os = "linux"
+target_cpu = "arm64"
+
+# Same codec route as linux-x64 (Plan 05 route 2 — user-supplied libffmpeg): ship the
+# H.264/AAC SUPPORT code + a SWAPPABLE libffmpeg.so that carries NO patented decoders
+# (ffmpeg_branding stays "Chromium"); a runtime avcodec_find_decoder() probe keeps
+# canPlayType/MediaCapabilities coherent. See build/args/linux-x64.gn for full rationale.
+proprietary_codecs = true
+ffmpeg_branding = "Chromium"
+is_component_ffmpeg = true
+media_use_ffmpeg = true

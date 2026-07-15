@@ -16,14 +16,16 @@
 set -euo pipefail
 
 SRC="" DIST="" VERSION="" IDENTITY="" TEAMID="" PROFILE="" PROBE=""
-NOTARY_PROFILE="" SKIP_NOTARIZE=0 OUTDIR="out/Default"
+NOTARY_PROFILE="" SKIP_NOTARIZE=0 OUTDIR="out/Default" ARCHLBL=""
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 while [ $# -gt 0 ]; do case "$1" in
   --src) SRC="$2"; shift 2;; --out) DIST="$2"; shift 2;; --version) VERSION="$2"; shift 2;;
   --identity) IDENTITY="$2"; shift 2;; --team-id) TEAMID="$2"; shift 2;;
   --profile) PROFILE="$2"; shift 2;; --probe) PROBE="$2"; shift 2;;
   --keychain-profile) NOTARY_PROFILE="$2"; shift 2;; --skip-notarize) SKIP_NOTARIZE=1; shift;;
-  --outdir) OUTDIR="$2"; shift 2;; *) echo "unknown: $1" >&2; exit 2;; esac; done
+  --outdir) OUTDIR="$2"; shift 2;;
+  --arch) ARCHLBL="$2"; shift 2;;   # target arch label for the artifact name (else uname -m)
+  *) echo "unknown: $1" >&2; exit 2;; esac; done
 : "${SRC:?--src}" "${DIST:?--out}" "${VERSION:?--version}" "${IDENTITY:?--identity}"
 [ "$(uname)" = "Darwin" ] || { echo "package-macos: must run on macOS" >&2; exit 1; }
 
@@ -63,7 +65,7 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 # --- 3. package into a DMG ---
 echo "== [3/6] dmg =="
 mkdir -p "$DIST"
-NAME="raven-chromium-${VERSION}-macos-$(uname -m)"
+NAME="raven-chromium-${VERSION}-macos-${ARCHLBL:-$(uname -m)}"
 DMG="$DIST/$NAME.dmg"
 rm -f "$DMG"
 hdiutil create -volname "Raven Chromium" -srcfolder "$APP" -ov -format UDZO "$DMG"

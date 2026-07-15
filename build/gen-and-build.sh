@@ -37,8 +37,15 @@ ARGS_PLAT="$RAVEN_ROOT/build/args/${PLATFORM}.gn"
 
 export PATH="$DEPOT_TOOLS:$PATH"
 ARGS="$(cat "$ARGS_COMMON"; printf '\n'; cat "$ARGS_PLAT")"
+# RELEASE=1 appends build/args/release.gni (LTO/official overrides). GN resolves the
+# LAST assignment, so release.gni overrides the dev toggles from common.gni.
+if [ "${RELEASE:-0}" = "1" ]; then
+  ARGS_REL="$RAVEN_ROOT/build/args/release.gni"
+  [ -f "$ARGS_REL" ] || { echo "gen-and-build: RELEASE=1 but missing $ARGS_REL" >&2; exit 1; }
+  ARGS="$(printf '%s\n%s\n' "$ARGS" "$(cat "$ARGS_REL")")"
+fi
 
-echo "== platform=$PLATFORM target=$TARGET out=$OUT =="
+echo "== platform=$PLATFORM target=$TARGET out=$OUT release=${RELEASE:-0} =="
 echo "== gn gen (args below) =="
 printf '%s\n' "$ARGS" | grep -vE '^\s*(#|$)'
 
