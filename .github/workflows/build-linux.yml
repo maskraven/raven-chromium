@@ -10,6 +10,13 @@ on:
   pull_request: { branches: [main] }
   workflow_dispatch: {}
 
+# Shared with build.yml + release.yml: at most ONE run touches the shared VPS at a
+# time (queue, don't cancel) — so this per-commit Linux build never collides with a
+# manual all-platform build or a tagged release on the same box.
+concurrency:
+  group: raven-shared-host
+  cancel-in-progress: false
+
 env:
   CHROMIUM_SRC: ${{ vars.CHROMIUM_SRC }}   # e.g. /home/runner/chromium/src
   PLATFORM: linux-x64

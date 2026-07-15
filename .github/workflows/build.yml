@@ -1,0 +1,118 @@
+# .github/workflows/build.yml
+# Raven-Chromium — build ALL THREE platforms on the shared raven VPS, but only
+# ONE platform at a time.
+#
+# Every self-hosted runner (native Linux + the dockur Windows/macOS containers)
+# lives on the SAME 24-core / 47 GB box, so two Chromium builds at once would
+# thrash RAM and OOM. Serialization is enforced two ways:
+#   1. strategy.max-parallel: 1  -> within a run, one platform leg at a time.
+#   2. concurrency: raven-shared-host  -> shared with build-linux.yml + release.yml,
+#      so no two runs (across ALL workflows) touch the VPS at once — they queue.
+#
+# Chromium can't build on GitHub-hosted runners (~150 GB / >6 h), so every build
+# leg targets a self-hosted label. The `setup` job is a tiny hosted job that just
+# computes the matrix, so `workflow_dispatch` can build all three or just one.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: which platform(s) to build
+        type: choice
+        options: [all, linux, macos, windows]
+        default: all
+      release:
+        description: release build (LTO/official; hours)
+        type: boolean
+        default: false
+
+# Shared across build.yml + build-linux.yml + release.yml: at most ONE run touches
+# the shared VPS at a time. Queue (do not cancel) an in-progress build.
+concurrency:
+  group: raven-shared-host
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest        # tiny hosted job — only computes the matrix
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        run: |
+          sel="${{ github.event.inputs.platform }}"; [ -z "$sel" ] && sel=all
+          L='{"platform":"linux","runs_on":["self-hosted","linux"]}'
+          M='{"platform":"macos","runs_on":["self-hosted","macos"]}'
+          W='{"platform":"windows","runs_on":["self-hosted","windows"]}'
+          case "$sel" in
+            linux)   inc="$L";;
+            macos)   inc="$M";;
+            windows) inc="$W";;
+            *)       inc="$L,$M,$W";;
+          esac
+          echo "matrix={\"include\":[$inc]}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    strategy:
+      fail-fast: false
+      max-parallel: 1             # <<< the guarantee: one platform builds at a time
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 600
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------- Linux: native x64 + arm64 cross ----------
+      - name: Build Linux (both arches)
+        if: matrix.platform == 'linux'
+        env:
+          CHROMIUM_SRC: ${{ vars.CHROMIUM_SRC }}
+        run: |
+          set -euo pipefail
+          git -C "$CHROMIUM_SRC" checkout -f raven-base
+          git -C "$CHROMIUM_SRC" submodule update --checkout --force v8 || true
+          CHROMIUM_SRC="$CHROMIUM_SRC" bash build/apply-patches.sh
+          rel=""; [ "${{ github.event.inputs.release }}" = "true" ] && rel="--release"
+          CHROMIUM_SRC="$CHROMIUM_SRC" bash build/build-linux.sh --package $rel
+
+      # ---------- macOS: native arm64 + x64 cross -> DMGs ----------
+      - name: Build macOS (both arches)
+        if: matrix.platform == 'macos'
+        env:
+          CHROMIUM_SRC: ${{ vars.CHROMIUM_SRC_MAC }}
+        run: |
+          set -euo pipefail
+          git -C "$CHROMIUM_SRC" checkout -f raven-base
+          git -C "$CHROMIUM_SRC" submodule update --checkout --force v8 || true
+          CHROMIUM_SRC="$CHROMIUM_SRC" bash build/apply-patches.sh
+          rel=""; [ "${{ github.event.inputs.release }}" = "true" ] && rel="--release"
+          CHROMIUM_SRC="$CHROMIUM_SRC" bash build/build-macos.sh $rel
+
+      # ---------- Windows: native x64 + arm64 cross ----------
+      # build-windows.ps1 is gitignored (kept out of the repo), so the runner supplies
+      # it out-of-band; RAVEN_WIN_BUILD_SCRIPT points at the provisioned copy. NOTE:
+      # build-windows.ps1 does its own sync+patch and is NOT idempotent on re-apply —
+      # the Windows container must reset its checkout to the pinned tag before re-runs.
+      - name: Stage Windows build script
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          RAVEN_WIN_BUILD_SCRIPT: ${{ vars.RAVEN_WIN_BUILD_SCRIPT }}
+        run: Copy-Item "$env:RAVEN_WIN_BUILD_SCRIPT" .\build\build-windows.ps1 -Force
+      - name: Build Windows (both arches)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $rel = ''
+          if ('${{ github.event.inputs.release }}' -eq 'true') { $rel = '-Release' }
+          .\build\build-windows.ps1 -Work C:\raven-build $rel
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raven-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: ignore

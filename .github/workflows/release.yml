@@ -12,6 +12,13 @@ on:
   push: { tags: ['v*'] }
   workflow_dispatch: { inputs: { version: { required: true } } }
 
+# Shared with build.yml + build-linux.yml: at most ONE run touches the shared VPS at
+# a time (queue, don't cancel). Combined with the needs-chain below, only one platform
+# builds at any moment across every workflow on the box.
+concurrency:
+  group: raven-shared-host
+  cancel-in-progress: false
+
 jobs:
   linux:
     runs-on: [self-hosted, linux, x64]
@@ -37,6 +44,8 @@ jobs:
 
   macos:
     # Apple-silicon runner: builds arm64 natively AND x64 via cross-compile.
+    needs: linux            # serialize platforms on the shared VPS...
+    if: ${{ always() }}     # ...but still run even if the linux job failed
     runs-on: [self-hosted, macos]
     timeout-minutes: 600
     strategy:
@@ -71,6 +80,8 @@ jobs:
 
   windows:
     # Windows x64 host: builds x64 natively AND arm64 via cross-compile.
+    needs: macos            # serialize platforms on the shared VPS...
+    if: ${{ always() }}     # ...but still run even if the macos job failed
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 600
     strategy:
