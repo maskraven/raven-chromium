@@ -91,23 +91,17 @@ jobs:
           CHROMIUM_SRC="$CHROMIUM_SRC" bash build/build-macos.sh $rel
 
       # ---------- Windows: native x64 + arm64 cross ----------
-      # build-windows.ps1 is gitignored (kept out of the repo), so the runner supplies
-      # it out-of-band; RAVEN_WIN_BUILD_SCRIPT points at the provisioned copy. NOTE:
-      # build-windows.ps1 does its own sync+patch and is NOT idempotent on re-apply —
-      # the Windows VM must reset its checkout to the pinned tag before re-runs.
-      - name: Stage Windows build script
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        env:
-          RAVEN_WIN_BUILD_SCRIPT: ${{ vars.RAVEN_WIN_BUILD_SCRIPT }}
-        run: Copy-Item "$env:RAVEN_WIN_BUILD_SCRIPT" .\build\build-windows.ps1 -Force
+      # build-windows.ps1 lives in the repo (build/), so the runner just runs it after
+      # checkout — the same clone-and-run flow as build-{linux,macos}.sh. It does its
+      # own sync+patch and is NOT idempotent on re-apply, so it resets its checkout to
+      # the pinned tag before each run. Builds to C:\raven by default.
       - name: Build Windows (both arches)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           $rel = ''
           if ('${{ github.event.inputs.release }}' -eq 'true') { $rel = '-Release' }
-          .\build\build-windows.ps1 -Work C:\raven-build $rel
+          .\build\build-windows.ps1 $rel
 
       - name: Upload artifacts
         if: always()

@@ -13,8 +13,5 @@ __pycache__/
 *.swp
 *~
 
-# Local, machine-specific Windows-on-ARM build driver (not for the repo)
-/build/build-windows.ps1
-
 # Local-only, host-specific docs (build-farm setup, infra topology) — never publish
 *.local.md
