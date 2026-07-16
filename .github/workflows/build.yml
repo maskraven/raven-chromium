@@ -1,13 +1,13 @@
 # .github/workflows/build.yml
-# Raven-Chromium — build ALL THREE platforms on the shared raven VPS, but only
+# Raven-Chromium — build ALL THREE platforms on the shared raven host, but only
 # ONE platform at a time.
 #
-# Every self-hosted runner (native Linux + the dockur Windows/macOS containers)
-# lives on the SAME 24-core / 47 GB box, so two Chromium builds at once would
+# Every self-hosted runner (native Linux on raven + the sibling Windows/macOS
+# Proxmox VMs) shares ONE physical host, so two Chromium builds at once would
 # thrash RAM and OOM. Serialization is enforced two ways:
 #   1. strategy.max-parallel: 1  -> within a run, one platform leg at a time.
 #   2. concurrency: raven-shared-host  -> shared with build-linux.yml + release.yml,
-#      so no two runs (across ALL workflows) touch the VPS at once — they queue.
+#      so no two runs (across ALL workflows) touch the host at once — they queue.
 #
 # Chromium can't build on GitHub-hosted runners (~150 GB / >6 h), so every build
 # leg targets a self-hosted label. The `setup` job is a tiny hosted job that just
@@ -94,7 +94,7 @@ jobs:
       # build-windows.ps1 is gitignored (kept out of the repo), so the runner supplies
       # it out-of-band; RAVEN_WIN_BUILD_SCRIPT points at the provisioned copy. NOTE:
       # build-windows.ps1 does its own sync+patch and is NOT idempotent on re-apply —
-      # the Windows container must reset its checkout to the pinned tag before re-runs.
+      # the Windows VM must reset its checkout to the pinned tag before re-runs.
       - name: Stage Windows build script
         if: matrix.platform == 'windows'
         shell: pwsh
