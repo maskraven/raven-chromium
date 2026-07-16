@@ -20,7 +20,11 @@ SERIES="$RAVEN_ROOT/patches/series"
 [ -d "$CHROMIUM_SRC/.git" ] || { echo "apply-patches: $CHROMIUM_SRC is not a git checkout (run sync.sh first)" >&2; exit 1; }
 [ -f "$SERIES" ] || { echo "apply-patches: missing $SERIES" >&2; exit 1; }
 
-mapfile -t NAMES < <(grep -vE '^\s*(#|$)' "$SERIES" || true)
+# bash 3.2 (macOS /bin/bash) has no `mapfile`; read the series portably.
+# `[[:space:]]` not `\s` — BSD/macOS grep doesn't support the \s shorthand.
+NAMES=()
+while IFS= read -r line; do NAMES+=("$line"); done \
+  < <(grep -vE '^[[:space:]]*(#|$)' "$SERIES" || true)
 if [ "${#NAMES[@]}" -eq 0 ]; then
   echo "apply-patches: patches/series is empty — nothing to apply (vanilla tree)."
   exit 0

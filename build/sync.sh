@@ -100,12 +100,22 @@ case "$MODE" in
   gclient)
     command -v fetch >/dev/null || die "depot_tools not on PATH ($DEPOT_TOOLS)"
     mkdir -p "$CHROMIUM_DIR"
-    if [ ! -e "$CHROMIUM_DIR/.gclient" ]; then
+    # A .gclient with NO populated src/ means a previous `fetch` was interrupted
+    # after writing .gclient but before creating the checkout. The reuse branch
+    # below assumes src/ exists (it fetches the tag with `git -C src`), so guard
+    # on the checkout, not just .gclient — otherwise re-runs die with
+    # "cannot change to '.../src': No such file or directory". `fetch` refuses to
+    # run when a .gclient already exists, so drop the stale one first.
+    if [ ! -e "$CHROMIUM_DIR/.gclient" ] || [ ! -d "$CHROMIUM_SRC/.git" ]; then
+      if [ -e "$CHROMIUM_DIR/.gclient" ]; then
+        log "stale .gclient without a src/ checkout — removing and re-fetching"
+        rm -f "$CHROMIUM_DIR/.gclient"
+      fi
       log "fetch --nohooks chromium into $CHROMIUM_DIR (long: ~tens of GB)"
       ( cd "$CHROMIUM_DIR" && \
         if [ "$HISTORY" = "shallow" ]; then fetch --no-history --nohooks chromium; else fetch --nohooks chromium; fi )
     else
-      log "existing .gclient found; reusing $CHROMIUM_DIR"
+      log "existing .gclient + src checkout found; reusing $CHROMIUM_DIR"
     fi
     # Fetch ONLY the pinned tag (never `git fetch --tags`: that enumerates all of
     # chromium's tags and deadlocks). In FULL mode fetch normally. In shallow mode
