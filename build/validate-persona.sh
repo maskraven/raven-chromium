@@ -29,11 +29,25 @@ mkdir -p "$OUT"
 PROFILE_ARG=()
 [ -n "$PROFILE" ] && PROFILE_ARG=(--fingerprint-profile="$PROFILE")
 
+# Portable timeout: macOS has no coreutils `timeout` (it's `gtimeout`, if installed).
+# Use GNU `timeout` when present (Linux — identical behavior), else `gtimeout`, else
+# a pure-shell watchdog.
+_timeout() {  # $1 = seconds; $2.. = command
+  local secs="$1"; shift
+  if command -v timeout  >/dev/null 2>&1; then timeout  "$secs" "$@"; return $?; fi
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"; return $?; fi
+  "$@" & local cmd_pid=$!
+  ( sleep "$secs"; kill -TERM "$cmd_pid" 2>/dev/null ) & local watch_pid=$!
+  wait "$cmd_pid" 2>/dev/null; local rc=$?
+  kill -TERM "$watch_pid" 2>/dev/null; wait "$watch_pid" 2>/dev/null
+  return $rc
+}
+
 run_probe() {  # $1 = output basename
   local dump="$OUT/$1.dump.html"
   # Fixed --window-size so window.outer{Width,Height} are stable across runs
   # (headless leaves them flaky/0 otherwise) — a persona has a fixed window.
-  timeout 90 "$CHROME" --headless=new --no-sandbox --disable-gpu \
+  _timeout 90 "$CHROME" --headless=new --no-sandbox --disable-gpu \
     --window-size=1280,800 --virtual-time-budget=8000 "${PROFILE_ARG[@]}" \
     --dump-dom "file://$PROBE" > "$dump" 2>/dev/null
   # hash from <title>FP:...</title>
