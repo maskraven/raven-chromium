@@ -20,17 +20,39 @@ SERIES="$RAVEN_ROOT/patches/series"
 [ -d "$CHROMIUM_SRC/.git" ] || { echo "apply-patches: $CHROMIUM_SRC is not a git checkout (run sync.sh first)" >&2; exit 1; }
 [ -f "$SERIES" ] || { echo "apply-patches: missing $SERIES" >&2; exit 1; }
 
-# bash 3.2 (macOS /bin/bash) has no `mapfile`; read the series portably.
+# bash 3.2 (macOS /bin/bash) has no `mapfile`; read a series file portably.
 # `[[:space:]]` not `\s` — BSD/macOS grep doesn't support the \s shorthand.
+read_series() {  # $1 = series file; appends patch paths (relative to patches/) to NAMES
+  [ -f "$1" ] || return 0
+  local line
+  while IFS= read -r line; do NAMES+=("$line"); done \
+    < <(grep -vE '^[[:space:]]*(#|$)' "$1" || true)
+}
+
 NAMES=()
-while IFS= read -r line; do NAMES+=("$line"); done \
-  < <(grep -vE '^[[:space:]]*(#|$)' "$SERIES" || true)
+read_series "$SERIES"
+
+# macOS-only build-fix patches (patches/build/macos/series) — several strip
+# safe_browsing deps that Linux/Windows still need, so they MUST be gated. Default:
+# apply when running on a Mac (mac builds run apply-patches.sh on the Mac). Override
+# with RAVEN_MACOS_PATCHES=1 (force on, e.g. cross-prep) or =0 (force off).
+case "${RAVEN_MACOS_PATCHES:-auto}" in
+  1) apply_mac=1;;
+  0) apply_mac=0;;
+  *) [ "$(uname -s)" = "Darwin" ] && apply_mac=1 || apply_mac=0;;
+esac
+if [ "$apply_mac" = "1" ]; then
+  echo "apply-patches: macOS host — including patches/build/macos series"
+  read_series "$RAVEN_ROOT/patches/build/macos/series"
+fi
+
 if [ "${#NAMES[@]}" -eq 0 ]; then
-  echo "apply-patches: patches/series is empty — nothing to apply (vanilla tree)."
+  echo "apply-patches: no patches selected — nothing to apply (vanilla tree)."
   exit 0
 fi
 
 if [ "${REVERSE:-0}" = "1" ]; then
+  NAMES_REV=()
   for ((i=${#NAMES[@]}-1; i>=0; i--)); do NAMES_REV+=("${NAMES[$i]}"); done
   NAMES=("${NAMES_REV[@]}")
 fi

@@ -1,0 +1,40 @@
+# patches/build/macos/series — macOS-only build-fix patches, applied by
+# build/apply-patches.sh ONLY when building on macOS (uname=Darwin, or
+# RAVEN_MACOS_PATCHES=1). They must NOT go in the main patches/series — several
+# strip safe_browsing deps that Linux/Windows still use and would break those
+# builds. Order/paths RELATIVE TO patches/. Blank + '#' lines ignored.
+#
+# Source: ungoogled-software/ungoogled-chromium-macos @ tag 150.0.7871.46-1.1
+# (nearest 150 tag; our pin is 150.0.7871.114 — a few may need a small rebase).
+#
+# All 15 upstream mac patches are VENDORED in this dir, but only the ones raven
+# actually needs are ACTIVE below. The rest are commented out with the reason.
+# To enable one: uncomment it (and rebase if `git apply` rejects on .114).
+
+# ============================ ACTIVE ============================
+# Minimal, confirmed fix: drop the two undefined mac safe_browsing deps from
+# //chrome/test:unit_tests (ungoogled issue #626). Just the unit_tests hunk — the
+# full upstream patch (inactive below) over-strips deps that resolve fine here.
+build/macos/raven-safebrowsing-unittest-deps.patch
+
+# ==================== INACTIVE — generic mac build fixes ====================
+# Enable if the build hits the matching error. Toolchain-independent, low-risk.
+#build/macos/fix-disabling-safebrowsing.patch     # FULL upstream safebrowsing fix — over-strips ui/extensions/file_util deps raven keeps; use only if those also go unresolved
+#build/macos/fix-nasm-build-config.patch          # third_party/nasm config-mac.h — nasm assembler config
+#build/macos/fix-dsymutil.patch                   # build/toolchain/apple: dsymutil invocation for dSYMs
+#build/macos/disable-symbol-order-verification.patch # chrome/BUILD.gn — libc++.a adds extra symbols
+#build/macos/no-unknown-warnings.patch            # build/config/mac — silence unknown -W flags
+#build/macos/fix-clang-format-path.patch          # blink bindings script clang-format path
+#build/macos/revert-v8-sanitizer-changes.patch    # v8 build workaround — enable only if v8 fails
+#build/macos/disable-crashpad-handler.patch       # BEHAVIOR CHANGE: disables crashpad_handler — review
+
+# ============ INACTIVE — toolchain substitution (raven uses the BUNDLED ============
+# Chromium clang/rust/bindgen via gclient, so these are almost certainly NOT needed
+# and may BREAK raven's build. Only enable if you switch to a from-source/system toolchain.
+#build/macos/build-bindgen.patch
+#build/macos/build-bindgen-target-override.patch
+#build/macos/bindgen-disable-static.patch
+#build/macos/fix-build-with-rust.patch
+#build/macos/set-rustc-nightly-capability.patch
+#build/macos/disable-clang-version-check.patch
+#build/macos/disable-unsupported-llvm-flags.patch
