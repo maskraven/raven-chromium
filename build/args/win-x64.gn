@@ -4,6 +4,16 @@
 target_os = "win"
 target_cpu = "x64"
 
+# Disable PCH on Windows. Chromium 150's clang toolchain adds -fmodule-name to EVERY
+# clang compile (build/toolchain/win/toolchain.gni, unconditional for clang, part of the
+# libc++-modules build). On the ONE precompiled-header TU (build/precompile.cc, compiled
+# with /Yc) that flag makes clang treat it as a C++ module interface unit and fail:
+# "missing 'export module' declaration in module interface unit". Regular TUs compile fine
+# with -fmodule-name; only PCH creation collides with it. Disabling PCH drops that one bad
+# combination (slightly slower builds). use_libcxx_modules=false does NOT help — the flag is
+# added independent of it. Applies to both win arches (same toolchain).
+enable_precompiled_headers = false
+
 # Plan 05 codecs (route 1): bundle H.264/AAC/MP3/etc. so canPlayType / MediaCapabilities
 # report real Chrome codec support AND playback works — closes the VIDEO_CODECS fingerprint
 # tell. Windows ships the decoders (patent-licensing accepted for this platform; see

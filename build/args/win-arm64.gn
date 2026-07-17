@@ -5,6 +5,12 @@
 target_os = "win"
 target_cpu = "arm64"
 
+# Disable PCH on Windows — see build/args/win-x64.gn for the full rationale. Chromium 150's
+# clang toolchain adds -fmodule-name to every clang compile; on the precompiled-header TU
+# (build/precompile.cc, /Yc) that makes clang treat it as a C++ module interface unit and
+# fail ("missing 'export module' declaration"). Same MSVC/clang toolchain as win-x64.
+enable_precompiled_headers = false
+
 # Plan 05 codecs (route 1): bundle H.264/AAC/MP3/etc. so canPlayType / MediaCapabilities
 # report real Chrome codec support AND playback works — closes the VIDEO_CODECS fingerprint
 # tell. Windows ships the decoders (patent-licensing accepted for this platform; see
