@@ -135,7 +135,23 @@ if (-not (Test-Path (Join-Path $UgcDir '.git'))) {
   Run git clone --depth 1 --branch $UgcTag https://github.com/ungoogled-software/ungoogled-chromium.git $UgcDir
 }
 $py = if (Get-Command python -ErrorAction SilentlyContinue) { 'python' } else { 'python3' }
-Log "apply ungoogled series"
+# ungoogled's utils/patches.py needs the GNU `patch` binary, which Windows lacks. Git for
+# Windows ships one at <GitRoot>\usr\bin\patch.exe; patches.py honors $env:PATCH_BIN, so
+# point it there (the raven series in step 3 uses `git apply`, so it needs no `patch`).
+if (-not $env:PATCH_BIN) {
+  $patchExe = (Get-Command patch.exe -ErrorAction SilentlyContinue).Source
+  if (-not $patchExe) {
+    $gitRoot = Split-Path -Parent (Split-Path -Parent (Get-Command git).Source)  # ...\Git\cmd\git.exe -> ...\Git
+    foreach ($p in @((Join-Path $gitRoot 'usr\bin\patch.exe'),
+                     "$env:ProgramFiles\Git\usr\bin\patch.exe",
+                     "${env:ProgramFiles(x86)}\Git\usr\bin\patch.exe")) {
+      if (Test-Path $p) { $patchExe = $p; break }
+    }
+  }
+  if (-not $patchExe) { Die "GNU 'patch' not found (ungoogled patches.py needs it). It ships with Git for Windows at <GitRoot>\usr\bin\patch.exe — install it or set `$env:PATCH_BIN." }
+  $env:PATCH_BIN = $patchExe
+}
+Log "apply ungoogled series (PATCH_BIN=$env:PATCH_BIN)"
 Run $py (Join-Path $UgcDir 'utils\patches.py') apply $ChromiumSrc (Join-Path $UgcDir 'patches')
 
 # ---- 3. apply the Raven fingerprint series ----
