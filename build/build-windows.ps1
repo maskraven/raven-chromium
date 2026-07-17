@@ -123,7 +123,19 @@ if (-not (Test-Path (Join-Path $ChromiumDir '.gclient')) -or
 # Fetch ONLY the pinned tag (never `git fetch --tags`: it enumerates all of chromium's
 # tags and deadlocks against googlesource).
 Run git -C $ChromiumSrc fetch origin ("+refs/tags/{0}:refs/tags/{0}" -f $ChromiumTag)
-Run git -C $ChromiumSrc checkout ("refs/tags/{0}" -f $ChromiumTag)
+# Make re-runs idempotent: reset the superproject AND the v8 gitlink to a pristine pinned tag,
+# then drop untracked patch-added files, so ungoogled + the raven series re-apply onto a clean
+# tree. A superproject reset does NOT touch submodule working trees, and raven patches edit v8,
+# so reset v8 explicitly. gclient deps are gitignored, so `clean -fd` keeps them. (2>&1|Out-Null
+# because these emit stderr notices that would trip $ErrorActionPreference='Stop'.)
+$ErrorActionPreference = 'Continue'
+Run git -C $ChromiumSrc checkout -f ("refs/tags/{0}" -f $ChromiumTag)
+& git -C $ChromiumSrc reset --hard ("refs/tags/{0}" -f $ChromiumTag) 2>&1 | Out-Null
+& git -C $ChromiumSrc submodule update --checkout --force v8 2>&1 | Out-Null
+& git -C "$ChromiumSrc\v8" reset --hard 2>&1 | Out-Null
+& git -C "$ChromiumSrc\v8" clean -fd 2>&1 | Out-Null
+& git -C $ChromiumSrc clean -fd 2>&1 | Out-Null
+$ErrorActionPreference = 'Stop'
 Log "gclient sync -> src@$ChromiumTag (deps + hooks; long)"
 # Do NOT pass --with_branch_heads/--with_tags: they add all-tags refspecs and `git fetch`
 # then deadlocks enumerating chromium's tags. --revision pins src to the tag.
