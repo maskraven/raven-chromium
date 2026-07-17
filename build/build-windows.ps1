@@ -98,6 +98,21 @@ Add it from an ELEVATED PowerShell, then re-run this script. Either modify the e
   winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --includeRecommended"
 "@
 }
+# Chromium's vs_toolchain.py finds VS 2022 ONLY under %ProgramFiles% (64-bit); Build Tools often
+# install to %ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools, which its hardcoded path
+# probe misses -> "No supported Visual Studio can be found" in `gn gen`, even though vswhere sees it.
+# Point Chromium at the real install via its own escape hatches, both derived from vswhere so any
+# location/edition works: vs<year>_install is consulted FIRST by _GenerateCandidatePaths (so
+# GetVisualStudioVersion stops raising), and GYP_MSVS_OVERRIDE_PATH pins that exact path for
+# setup_toolchain.py (otherwise it can resolve to a phantom 64-bit path that doesn't exist on disk).
+$vsYear = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property catalog_productLineVersion 2>$null | Select-Object -First 1
+if ($vsYear) {
+  Set-Item -Path ("env:vs{0}_install" -f $vsYear) -Value $vcx64
+  if (-not $env:GYP_MSVS_OVERRIDE_PATH) { $env:GYP_MSVS_OVERRIDE_PATH = $vcx64 }
+  Log "VS $vsYear -> $vcx64  (set vs${vsYear}_install + GYP_MSVS_OVERRIDE_PATH for vs_toolchain.py)"
+} else {
+  Log "WARN: could not read VS product-line year from vswhere; if gn gen reports 'No supported Visual Studio', set vs2022_install to '$vcx64'."
+}
 # The arm64 slice needs the ARM64 cross toolset; check only when it'll actually be built.
 if ($Arch -ne 'win-x64') {
   $vcarm = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath 2>$null | Select-Object -First 1
