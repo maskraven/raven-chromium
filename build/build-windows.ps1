@@ -41,7 +41,15 @@ function Log($m) { Write-Host "`n[win-build] $m" -ForegroundColor Cyan }
 function Die($m) { Write-Host "`n[win-build:FAIL] $m" -ForegroundColor Red; exit 1 }
 function Run($exe) {
   Write-Host "  + $exe $args" -ForegroundColor DarkGray
-  & $exe @args
+  # $ErrorActionPreference='Stop' turns ANY native stderr write into a terminating
+  # NativeCommandError — but git/gclient/ninja all stream progress and warnings to
+  # stderr, so that aborts the build on non-errors ("WARNING:root:depot_tools
+  # recommends..."). Drop to Continue for the call, merge stderr into stdout so the
+  # lines just print, and judge success ONLY by the exit code.
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $exe @args 2>&1 | ForEach-Object { Write-Host $_ } }
+  finally { $ErrorActionPreference = $prev }
   if ($LASTEXITCODE -ne 0) { Die "command failed ($LASTEXITCODE): $exe $args" }
 }
 
