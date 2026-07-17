@@ -157,17 +157,24 @@ Run $py (Join-Path $UgcDir 'utils\patches.py') apply $ChromiumSrc (Join-Path $Ug
 # ---- 3. apply the Raven fingerprint series ----
 Log "apply Raven series (patches/series)"
 $series = Get-Content (Join-Path $RavenRoot 'patches\series') | Where-Object { $_ -and $_ -notmatch '^\s*#' }
+# git writes notices (e.g. "trailing whitespace") to stderr even when apply SUCCEEDS, and under
+# $ErrorActionPreference='Stop' PowerShell turns any native-command stderr into a terminating
+# NativeCommandError. So run these with 'Continue', capture output (2>&1), and gate on
+# $LASTEXITCODE. --whitespace=nowarn silences the common noise (patches are LF; the tree may be CRLF).
+$eapSaved = $ErrorActionPreference
 foreach ($name in $series) {
   $patch = Join-Path $RavenRoot ('patches\' + ($name -replace '/','\'))
   if (-not (Test-Path $patch)) { Die "patch not found: $patch" }
   Write-Host "  [apply] $name"
-  & git -C $ChromiumSrc apply --3way $patch 2>$null
+  $ErrorActionPreference = 'Continue'
+  $null = & git -C $ChromiumSrc apply --3way --whitespace=nowarn $patch 2>&1
   if ($LASTEXITCODE -ne 0) {
     # --3way can't write submodule paths (e.g. the v8 gitlink); a plain apply edits the submodule tree.
-    & git -C $ChromiumSrc apply $patch
-    if ($LASTEXITCODE -ne 0) { Die "failed to apply $name" }
+    $out = & git -C $ChromiumSrc apply --whitespace=nowarn $patch 2>&1
+    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $eapSaved; $out | Write-Host; Die "failed to apply $name" }
     Write-Host "          (applied without --3way)"
   }
+  $ErrorActionPreference = $eapSaved
 }
 
 # ---- 4. build the requested arch(es) ----
