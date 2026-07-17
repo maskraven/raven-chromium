@@ -1,0 +1,15 @@
+# patches/build/windows/series — Windows-only build-fix patches, applied by
+# build/build-windows.ps1 (via GNU patch) AFTER the main patches/series, ONLY on
+# the Windows builder. They must NOT go in the main patches/series: they touch
+# targets (the //chrome/installer/setup + //rlz graph) that only Windows evaluates,
+# and mac/Linux builds are already green without them. Paths RELATIVE TO patches/.
+# Blank + '#' lines ignored. Same GNU-patch apply path as the raven series, so CRLF
+# checkouts are fine.
+
+# ============================ ACTIVE ============================
+# ungoogled forces enable_rlz_support=false everywhere, but the Windows installer
+# (//chrome/installer/setup, //rlz:rlz_id) references the rlz library unconditionally,
+# so `gn gen` fails "Unresolved dependencies". Restore the upstream value; RLZ pings
+# stay off via enable_rlz (raven isn't Chrome-branded). See the patch header for why
+# this adds no rlz code to chrome.exe.
+build/windows/raven-rlz-restore-support.patch

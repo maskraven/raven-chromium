@@ -1,0 +1,23 @@
+# Raven (Windows): ungoogled hardcodes enable_rlz_support=false on every platform
+# (rlz/buildflags/buildflags.gni), but the Windows installer references the rlz
+# library UNCONDITIONALLY — //chrome/installer/setup:setup deps //rlz:rlz_lib_no_network
+# and rlz/BUILD.gn's rlz_id executable deps //rlz:rlz_lib, both defined only under
+# `if (enable_rlz_support)`. With it false, `gn gen` dies "Unresolved dependencies".
+# (chrome/installer/setup/uninstall.cc also calls rlz_lib::ClearProductState with no
+# ENABLE_RLZ guard.) macOS/Linux never load rlz/BUILD.gn, so ONLY Windows trips on it.
+#
+# Restore the upstream value. This does NOT re-enable RLZ tracking: enable_rlz stays
+# `is_chrome_branded && enable_rlz_support` = false (raven isn't Chrome-branded), so no
+# RLZ pings — and building only `chrome` (not setup.exe) compiles no rlz code; gn just
+# needs the targets DEFINED so the graph resolves. Applied ONLY by build-windows.ps1.
+--- a/rlz/buildflags/buildflags.gni
++++ b/rlz/buildflags/buildflags.gni
+@@ -6,7 +6,7 @@ import("//build/config/chrome_build.gni")
+
+ # Whether we are using the rlz library or not.  Platforms like Android send
+ # rlz codes for searches but do not use the library.
+-enable_rlz_support = false
++enable_rlz_support = is_win || is_apple || is_chromeos
+
+ declare_args() {
+   enable_rlz = is_chrome_branded && enable_rlz_support

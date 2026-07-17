@@ -209,37 +209,47 @@ if (-not $env:PATCH_BIN) {
 Log "apply ungoogled series (PATCH_BIN=$env:PATCH_BIN)"
 Run $py (Join-Path $UgcDir 'utils\patches.py') apply $ChromiumSrc (Join-Path $UgcDir 'patches')
 
-# ---- 3. apply the Raven fingerprint series ----
+# ---- 3. apply the Raven fingerprint series (+ Windows-only build fixups) ----
 # Apply with GNU patch (PATCH_BIN), NOT `git apply`. This box has core.autocrlf=true, so gclient
 # deps (e.g. third_party/abseil-cpp/absl.gni) check out CRLF while the raven .patch files are LF.
 # `git apply` then fails ("patch does not apply") because the trailing CRs make every context line
 # differ; --whitespace=nowarn only silences warnings, it can't reconcile the endings. GNU patch
 # auto-strips CRs from the patch and matches leniently against a CRLF tree (the same reason
 # ungoogled's patches.py works on this box), and it edits files inside the v8 submodule with no
-# gitlink/--3way dance. All 41 raven patches are plain content/new-file diffs (no renames/binaries),
+# gitlink/--3way dance. The raven patches are plain content/new-file diffs (no renames/binaries),
 # which GNU patch applies cleanly. PowerShell would turn patch's stderr into a terminating
 # NativeCommandError under 'Stop', so run with 'Continue', capture 2>&1, and gate on $LASTEXITCODE.
-Log "apply Raven series (patches/series) via GNU patch ($env:PATCH_BIN)"
-# Trim first (kills stray CR/whitespace), THEN drop blank + comment lines — mirrors the bash
-# reader's `grep -vE '^[[:space:]]*(#|$)'` so a whitespace-only line can't become a bogus patch path.
-$series = Get-Content (Join-Path $RavenRoot 'patches\series') |
-          ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^#' }
-$eapSaved = $ErrorActionPreference
-Push-Location $ChromiumSrc
-try {
-  foreach ($name in $series) {
-    $patch = Join-Path $RavenRoot ('patches\' + ($name -replace '/','\'))
-    if (-not (Test-Path $patch)) { Die "patch not found: $patch" }
-    Write-Host "  [apply] $name"
-    $ErrorActionPreference = 'Continue'
-    # -p1 strips a/ b/; --forward refuses reverse/already-applied hunks (a clean reset never has any,
-    # so this only fires if a prior reset silently failed); --no-backup-if-mismatch keeps the tree tidy.
-    $out = & $env:PATCH_BIN -p1 --forward --no-backup-if-mismatch -i $patch 2>&1
-    $rc = $LASTEXITCODE
-    $ErrorActionPreference = $eapSaved
-    if ($rc -ne 0) { $out | Write-Host; Die "failed to apply $name (patch rc=$rc)" }
+function Apply-Series($seriesFile, $label, [switch]$Optional) {
+  if (-not (Test-Path $seriesFile)) {
+    if ($Optional) { Log "no $label at $seriesFile — skipping"; return }
+    Die "series not found: $seriesFile"
   }
-} finally { Pop-Location; $ErrorActionPreference = $eapSaved }
+  # Trim first (kills stray CR/whitespace), THEN drop blank + comment lines — mirrors the bash
+  # reader's `grep -vE '^[[:space:]]*(#|$)'` so a whitespace-only line can't become a bogus path.
+  $names = Get-Content $seriesFile |
+           ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^#' }
+  Log "apply $label via GNU patch — $($names.Count) patch(es)"
+  $eapSaved = $ErrorActionPreference
+  Push-Location $ChromiumSrc
+  try {
+    foreach ($name in $names) {
+      $patch = Join-Path $RavenRoot ('patches\' + ($name -replace '/','\'))
+      if (-not (Test-Path $patch)) { Die "patch not found: $patch" }
+      Write-Host "  [apply] $name"
+      $ErrorActionPreference = 'Continue'
+      # -p1 strips a/ b/; --forward refuses reverse/already-applied hunks (a clean reset never has
+      # any, so this only fires if a prior reset silently failed); --no-backup-if-mismatch keeps tidy.
+      $out = & $env:PATCH_BIN -p1 --forward --no-backup-if-mismatch -i $patch 2>&1
+      $rc = $LASTEXITCODE
+      $ErrorActionPreference = $eapSaved
+      if ($rc -ne 0) { $out | Write-Host; Die "failed to apply $name (patch rc=$rc)" }
+    }
+  } finally { Pop-Location; $ErrorActionPreference = $eapSaved }
+}
+Apply-Series (Join-Path $RavenRoot 'patches\series') 'Raven series (patches/series)'
+# Windows-only build fixups (e.g. the RLZ graph), applied AFTER the main series and ONLY here — the
+# mac/Linux builds are green without them. Optional so an empty/absent series is a no-op, not a fail.
+Apply-Series (Join-Path $RavenRoot 'patches\build\windows\series') 'Raven Windows build fixups' -Optional
 
 # ---- 4. build the requested arch(es) ----
 function Build-Arch($plat, $out) {
