@@ -16,6 +16,10 @@
 # //chrome/test:unit_tests (ungoogled issue #626). Just the unit_tests hunk — the
 # full upstream patch (inactive below) over-strips deps that resolve fine here.
 build/macos/raven-safebrowsing-unittest-deps.patch
+# ScreenAI + OnDeviceTranslation aren't built on macOS here, but SetupEmbedderSandboxParameters
+# still references them -> ld64.lld undefined symbol at the Chromium Framework link. Remove those
+# two sandbox blocks. (Also from ungoogled-chromium-macos fix-disabling-safebrowsing.patch.)
+build/macos/raven-macos-screenai-translation-sandbox.patch
 
 # ==================== INACTIVE — generic mac build fixes ====================
 # Enable if the build hits the matching error. Toolchain-independent, low-risk.
