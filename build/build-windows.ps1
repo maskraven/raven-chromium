@@ -88,8 +88,9 @@ Log "Work=$Work  Release=$Release  Arch=$Arch"
 
 # ---- read pins ----
 $pinsFile    = Join-Path $RavenRoot 'build\PINS'
-$ChromiumTag = (Select-String -Path $pinsFile -Pattern '^chromium_tag=(.+)$').Matches[0].Groups[1].Value
-$UgcTag      = (Select-String -Path $pinsFile -Pattern '^ungoogled_tag=(.+)$').Matches[0].Groups[1].Value
+# .Trim() guards against a stray CR/space leaking into a git ref (refs/tags/<tag>\r fails cryptically).
+$ChromiumTag = (Select-String -Path $pinsFile -Pattern '^chromium_tag=(.+)$').Matches[0].Groups[1].Value.Trim()
+$UgcTag      = (Select-String -Path $pinsFile -Pattern '^ungoogled_tag=(.+)$').Matches[0].Groups[1].Value.Trim()
 if (-not $ChromiumTag -or -not $UgcTag) { Die "could not read chromium_tag/ungoogled_tag from build/PINS" }
 Log "pins: chromium=$ChromiumTag ungoogled=$UgcTag"
 
@@ -180,7 +181,10 @@ Run $py (Join-Path $UgcDir 'utils\patches.py') apply $ChromiumSrc (Join-Path $Ug
 # which GNU patch applies cleanly. PowerShell would turn patch's stderr into a terminating
 # NativeCommandError under 'Stop', so run with 'Continue', capture 2>&1, and gate on $LASTEXITCODE.
 Log "apply Raven series (patches/series) via GNU patch ($env:PATCH_BIN)"
-$series = Get-Content (Join-Path $RavenRoot 'patches\series') | Where-Object { $_ -and $_ -notmatch '^\s*#' }
+# Trim first (kills stray CR/whitespace), THEN drop blank + comment lines — mirrors the bash
+# reader's `grep -vE '^[[:space:]]*(#|$)'` so a whitespace-only line can't become a bogus patch path.
+$series = Get-Content (Join-Path $RavenRoot 'patches\series') |
+          ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^#' }
 $eapSaved = $ErrorActionPreference
 Push-Location $ChromiumSrc
 try {
