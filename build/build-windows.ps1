@@ -79,8 +79,32 @@ if ((& git config --global core.longpaths 2>$null) -ne 'true') {
 }
 if (-not (Get-Command python -ErrorAction SilentlyContinue) -and
     -not (Get-Command python3 -ErrorAction SilentlyContinue)) { Die "python 3 not found" }
+# Visual Studio with the C++ toolset is REQUIRED. gn's vs_toolchain.py locates the compiler via
+# `vswhere -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64`; if VS is absent OR installed
+# without "Desktop development with C++", that returns nothing and the build dies deep in `gn gen`
+# ("No supported Visual Studio can be found"). Verify a USABLE instance here and fail fast with the
+# exact remediation instead. (DEPOT_TOOLS_WIN_TOOLCHAIN=0 above means the LOCAL VS is used.)
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (-not (Test-Path $vswhere)) { Log "WARN: Visual Studio / vswhere not found — build needs VS with C++ + ARM64 tools." }
+if (-not (Test-Path $vswhere)) {
+  Die "Visual Studio not found (no vswhere.exe). Install VS 2022 (or Build Tools) with 'Desktop development with C++'. See the header + docs/build-farm-setup.local.md."
+}
+$vcx64 = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null | Select-Object -First 1
+if (-not $vcx64) {
+  Die @"
+Visual Studio is present but the C++ x64/x86 toolset (VC.Tools.x86.x64) is NOT installed.
+Add it from an ELEVATED PowerShell, then re-run this script. Either modify the existing VS:
+  & "`${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe" modify --installPath "<your VS install path>" --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --includeRecommended --quiet --norestart
+...or install standalone Build Tools:
+  winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --includeRecommended"
+"@
+}
+# The arm64 slice needs the ARM64 cross toolset; check only when it'll actually be built.
+if ($Arch -ne 'win-x64') {
+  $vcarm = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath 2>$null | Select-Object -First 1
+  if (-not $vcarm) {
+    Die "VS C++ ARM64 cross toolset (VC.Tools.ARM64) missing — required for win-arm64. Add it via the VS Installer (MSVC ... ARM64 build tools), or pass -Arch win-x64 to skip the arm64 slice."
+  }
+}
 $dbg = "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64"
 if (-not (Test-Path $dbg)) { Log "WARN: missing '$dbg' — the x64 build needs it; copy Debuggers\x64 from an x64 Windows box." }
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
