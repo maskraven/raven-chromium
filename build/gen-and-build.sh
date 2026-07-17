@@ -44,6 +44,13 @@ if [ "${RELEASE:-0}" = "1" ]; then
   [ -f "$ARGS_REL" ] || { echo "gen-and-build: RELEASE=1 but missing $ARGS_REL" >&2; exit 1; }
   ARGS="$(printf '%s\n%s\n' "$ARGS" "$(cat "$ARGS_REL")")"
 fi
+# GN_EXTRA_ARGS: host-specific overrides, appended LAST so they win (gn takes the final
+# assignment). For tuning a host's memory ceiling without editing the shared arg files —
+# the args here are build-shape only and must never change runtime behaviour:
+#   GN_EXTRA_ARGS='concurrent_links=1 symbol_level=0'
+if [ -n "${GN_EXTRA_ARGS:-}" ]; then
+  ARGS="$(printf '%s\n%s\n' "$ARGS" "$GN_EXTRA_ARGS")"
+fi
 
 echo "== platform=$PLATFORM target=$TARGET out=$OUT release=${RELEASE:-0} =="
 echo "== gn gen (args below) =="
@@ -51,6 +58,11 @@ printf '%s\n' "$ARGS" | grep -vE '^\s*(#|$)'
 
 cd "$CHROMIUM_SRC"
 gn gen "$OUT" --args="$ARGS"
-echo "== autoninja -C $OUT $TARGET =="
-time autoninja -C "$OUT" "$TARGET"
+# NINJA_JOBS caps COMPILE parallelism (~1-1.5 GB resident per job). autoninja/siso sizes
+# this from core count and ignores how much RAM each job needs, which swaps memory-tight
+# hosts. Link parallelism is separate — cap that with concurrent_links in GN_EXTRA_ARGS.
+NINJA_EXTRA=()
+[ -n "${NINJA_JOBS:-}" ] && NINJA_EXTRA=(-j "$NINJA_JOBS")
+echo "== autoninja -C $OUT ${NINJA_EXTRA[*]-} $TARGET =="
+time autoninja -C "$OUT" ${NINJA_EXTRA[@]+"${NINJA_EXTRA[@]}"} "$TARGET"
 echo "== build done: $CHROMIUM_SRC/$OUT =="
