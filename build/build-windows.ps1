@@ -61,6 +61,14 @@ $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'   # use the LOCAL Visual Studio, not the go
 
 # ---- 0. preflight ----
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "git not found (install Git for Windows)" }
+# Chromium's tree busts MAX_PATH. Without core.longpaths git dies mid-clone/checkout with
+# "Filename too long" (exit 128). Set it for this user; the machine-wide NTFS switch
+# (HKLM\...\FileSystem\LongPathsEnabled=1) still has to be on — see the setup doc.
+# (`git config --get` exits 1 when unset — harmless here, but keep it quiet.)
+if ((& git config --global core.longpaths 2>$null) -ne 'true') {
+  Log "setting git core.longpaths=true (Chromium paths exceed MAX_PATH)"
+  Run git config --global core.longpaths true
+}
 if (-not (Get-Command python -ErrorAction SilentlyContinue) -and
     -not (Get-Command python3 -ErrorAction SilentlyContinue)) { Die "python 3 not found" }
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -86,7 +94,20 @@ $env:PATH = "$DepotTools;$env:PATH"   # depot_tools MUST be first on PATH
 
 # ---- 2. download + ungoogle the tree ----
 New-Item -ItemType Directory -Force -Path $ChromiumDir | Out-Null
-if (-not (Test-Path (Join-Path $ChromiumDir '.gclient'))) {
+# A .gclient with NO populated src/ means a previous `fetch` was interrupted after writing
+# .gclient but before the checkout existed. Everything below assumes src/ is a real git
+# checkout (it runs `git -C $ChromiumSrc fetch`), so guard on the checkout, not just on
+# .gclient — otherwise a re-run hands gclient a half-made tree and it shunts src into
+# _bad_scm\. `fetch` refuses to run when a .gclient already exists, so drop the stale one.
+if (-not (Test-Path (Join-Path $ChromiumDir '.gclient')) -or
+    -not (Test-Path (Join-Path $ChromiumSrc '.git'))) {
+  if (Test-Path (Join-Path $ChromiumDir '.gclient')) {
+    Log "stale .gclient without a src\ checkout — removing and re-fetching"
+    Remove-Item -Force (Join-Path $ChromiumDir '.gclient')
+  }
+  # Leftovers from a failed gclient sync; they only confuse the next run.
+  Get-ChildItem -Path $ChromiumDir -Directory -Filter '_gclient_src_*' -ErrorAction SilentlyContinue |
+    ForEach-Object { Log "removing stale temp clone $($_.FullName)"; Remove-Item -Recurse -Force $_.FullName }
   Log "fetch --nohooks chromium (long, ~tens of GB)"
   Push-Location $ChromiumDir
   try { Run fetch --nohooks chromium } finally { Pop-Location }
