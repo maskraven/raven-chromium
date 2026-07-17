@@ -29,8 +29,15 @@ while [ $# -gt 0 ]; do case "$1" in
 : "${SRC:?--src}" "${DIST:?--out}" "${VERSION:?--version}" "${IDENTITY:?--identity}"
 [ "$(uname)" = "Darwin" ] || { echo "package-macos: must run on macOS" >&2; exit 1; }
 
-APP="$(/bin/ls -d "$SRC/$OUTDIR/"*.app 2>/dev/null | head -1)"
-[ -d "$APP" ] || { echo "package-macos: no .app in $SRC/$OUTDIR" >&2; exit 1; }
+# Pick the MAIN app, not a "* Helper*.app": helpers sort BEFORE Chromium.app
+# (space 0x20 < period 0x2E), so a bare `ls | head` grabs the Alerts helper.
+APP=""
+for a in "$SRC/$OUTDIR/"*.app; do
+  [ -d "$a" ] || continue
+  case "${a##*/}" in *" Helper"*) continue;; esac
+  APP="$a"; break
+done
+[ -d "$APP" ] || { echo "package-macos: no main .app in $SRC/$OUTDIR" >&2; exit 1; }
 APP_ENT="$SELF/sign/entitlements-app.plist"
 REN_ENT="$SELF/sign/entitlements-helper-renderer.plist"
 

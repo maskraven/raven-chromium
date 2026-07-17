@@ -89,8 +89,15 @@ for plat in "${PLATFORMS[@]}"; do
     bash "$RAVEN_ROOT/build/package-macos.sh" "${pkg_args[@]}" || die "packaging failed for $plat"
   else
     # Unsigned dev DMG (no certs needed): hdiutil the built .app directly.
-    app="$(/bin/ls -d "$CHROMIUM_SRC/$out/"*.app 2>/dev/null | head -1)"
-    [ -d "$app" ] || die "no .app in $CHROMIUM_SRC/$out — did the build produce one?"
+    # Pick the MAIN app, not a "* Helper*.app": helpers sort BEFORE Chromium.app
+    # (space 0x20 < period 0x2E), so a bare `ls | head` grabs the Alerts helper.
+    app=""
+    for a in "$CHROMIUM_SRC/$out/"*.app; do
+      [ -d "$a" ] || continue
+      case "${a##*/}" in *" Helper"*) continue;; esac
+      app="$a"; break
+    done
+    [ -d "$app" ] || die "no main .app in $CHROMIUM_SRC/$out — did the build produce one?"
     log "package (unsigned) $plat -> $dmg"
     rm -f "$dmg"
     hdiutil create -volname "Raven Chromium" -srcfolder "$app" -ov -format UDZO "$dmg" >/dev/null
