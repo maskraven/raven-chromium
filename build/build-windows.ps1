@@ -138,9 +138,12 @@ Run git -C $ChromiumSrc checkout -f ("refs/tags/{0}" -f $ChromiumTag)
 $ErrorActionPreference = 'Stop'
 Log "gclient sync -> src@$ChromiumTag (deps + hooks; long)"
 # Do NOT pass --with_branch_heads/--with_tags: they add all-tags refspecs and `git fetch`
-# then deadlocks enumerating chromium's tags. --revision pins src to the tag.
+# then deadlocks enumerating chromium's tags. --revision pins src to the tag. --reset reverts
+# local modifications in EVERY dep (not just src/v8), so a re-run re-applies ungoogled onto a
+# pristine tree — ungoogled patches touch deps like third_party/search_engines_data, which the
+# superproject reset above can't reach ("Reversed (or previously applied) patch detected" otherwise).
 Push-Location $ChromiumSrc
-try { Run gclient sync -D --revision ("src@refs/tags/{0}" -f $ChromiumTag) } finally { Pop-Location }
+try { Run gclient sync -D --reset --revision ("src@refs/tags/{0}" -f $ChromiumTag) } finally { Pop-Location }
 
 # ungoogled baseline (patch series onto the tree)
 if (-not (Test-Path (Join-Path $UgcDir '.git'))) {
